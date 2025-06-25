@@ -23,6 +23,8 @@
       <li>
         {% if request.url.path == '/links' %}
         <strong><a href="/links" class="logo">Scrapper</a></strong>
+        {% elif request.url.path == '/deep-scrape' %}
+        <strong><a href="/deep-scrape" class="logo">Scrapper</a></strong>
         {% else %}
         <strong><a href="/" class="logo">Scrapper</a></strong>
         {% endif %}
@@ -45,6 +47,9 @@
           {% if request.url.path == '/links' %}
           <input type="email" id="url" name="email" placeholder="https://example.com/news.html" required>
           <small>The page should contain hyperlinks to news articles. For example, this could be the main page of a website.</small>
+          {% elif request.url.path == '/deep-scrape' %}
+          <input type="url" id="url" name="url" placeholder="https://example.com/" required>
+          <small>Base URL for deep scraping. The system will recursively scrape this URL and all linked pages up to the specified depth.</small>
           {% else %}
           <input type="email" id="url" name="email" placeholder="https://example.com/article.html" required>
           <small>The page should contain the text of the article that needs to be extracted from.</small>
@@ -58,16 +63,52 @@
             {% if request.url.path == '/links' %}
             <option value="/">Article</option>
             <option value="/links" selected>Links</option>
+            <option value="/deep-scrape">Deep Scrape</option>
+            {% elif request.url.path == '/deep-scrape' %}
+            <option value="/">Article</option>
+            <option value="/links">Links</option>
+            <option value="/deep-scrape" selected>Deep Scrape</option>
             {% else %}
             <option value="/" selected>Article</option>
             <option value="/links">Links</option>
+            <option value="/deep-scrape">Deep Scrape</option>
             {% endif %}
           </select>
         </p>
         <br>
         <div>
-          <details id="query-params-details" open="">
-            <summary>Request Parameters</summary>
+          {% if request.url.path == '/deep-scrape' %}
+          <details id="deep-scrape-controls" open="">
+            <summary>Deep Scraping Configuration</summary>
+            <div class="grid">
+              <label for="depth">
+                Depth (1-10)
+                <input type="number" id="depth" name="depth" min="1" max="10" value="3">
+              </label>
+              <label for="max-urls">
+                Max URLs per Level
+                <input type="number" id="max-urls" name="max-urls" min="1" max="50" value="10">
+              </label>
+            </div>
+            <div class="grid">
+              <label for="delay">
+                Delay (seconds)
+                <input type="number" id="delay" name="delay" min="0.1" max="10" step="0.1" value="1.0">
+              </label>
+              <label for="same-domain">
+                <input type="checkbox" id="same-domain" name="same-domain" checked>
+                Same Domain Only
+              </label>
+            </div>
+            <label for="exclude-patterns">
+              Exclude Patterns (comma-separated)
+              <input type="text" id="exclude-patterns" name="exclude-patterns" placeholder="/admin,/login,/logout">
+            </label>
+          </details>
+          {% endif %}
+          
+          <details id="query-params-details" {% if request.url.path != '/deep-scrape' %}open=""{% endif %}>
+            <summary>{% if request.url.path == '/deep-scrape' %}Advanced Parameters{% else %}Request Parameters{% endif %}</summary>
             <textarea id="query-params" rows="10" cols="50" placeholder="{{ for_example|safe }}"></textarea>
             <summary><small><a href="/docs/" target="_blank">Swagger Docs</a></small></summary>
           </details>
@@ -95,12 +136,16 @@
     </div>
   </footer>
   <script src="/static/dark-mode.js"></script>
-  <script>
-    {% if request.url.path == '/links' %}
-    var apiEndpoint = "/api/links";
-    {% else %}
-    var apiEndpoint = "/api/article";
-    {% endif %}
+  <script type="text/javascript">
+    // Set API endpoint based on current page path
+    var currentPath = window.location.pathname;
+    var apiEndpoint = "/api/article"; // default
+    
+    if (currentPath === '/links') {
+      apiEndpoint = "/api/links";
+    } else if (currentPath === '/deep-scrape') {
+      apiEndpoint = "/api/deep-scrape";
+    }
   </script>
   <script src="/static/query.js"></script>
 </body>

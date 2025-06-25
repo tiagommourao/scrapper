@@ -7,6 +7,21 @@
           url: url
         };
 
+        // Add deep scraping specific parameters if on deep-scrape page
+        if (window.location.pathname === '/deep-scrape') {
+            let depth = document.getElementById("depth");
+            let maxUrls = document.getElementById("max-urls");
+            let delay = document.getElementById("delay");
+            let sameDomain = document.getElementById("same-domain");
+            let excludePatterns = document.getElementById("exclude-patterns");
+            
+            if (depth && depth.value) params.depth = depth.value;
+            if (maxUrls && maxUrls.value) params["max-urls-per-level"] = maxUrls.value;
+            if (delay && delay.value) params["delay-between-requests"] = delay.value;
+            if (sameDomain) params["same-domain-only"] = sameDomain.checked ? "true" : "false";
+            if (excludePatterns && excludePatterns.value) params["exclude-patterns"] = excludePatterns.value;
+        }
+
         document.getElementById("query-params").value.split(/\r?\n/).forEach((line) => {
             line = line.replace(/^\s+|\s+$/g, '');
             if (line) {
@@ -98,6 +113,18 @@
     // add event listeners to the url and query params fields to update the snippet and save to local storage
     url.addEventListener("input", updateSnippet);
     queryParams.addEventListener("input", updateSnippet);
+    
+    // add event listeners for deep scraping controls if they exist
+    if (window.location.pathname === '/deep-scrape') {
+        let deepScrapeControls = ['depth', 'max-urls', 'delay', 'same-domain', 'exclude-patterns'];
+        deepScrapeControls.forEach(controlId => {
+            let control = document.getElementById(controlId);
+            if (control) {
+                control.addEventListener("input", updateSnippet);
+                control.addEventListener("change", updateSnippet);
+            }
+        });
+    }
 
     // then open the query params details if there are query params in local storage already (i.e. the user has already used the scrapper)
     if (queryParams.value) {

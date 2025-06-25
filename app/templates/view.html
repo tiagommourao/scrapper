@@ -21,11 +21,13 @@
       <li>
       </li>
       <li>
-        {% if data.links %}
-        <strong><a href="/links" class="logo">Scrapper</a></strong>
-        {% else %}
-        <strong><a href="/" class="logo">Scrapper</a></strong>
-        {% endif %}
+              {% if data.links %}
+      <strong><a href="/links" class="logo">Scrapper</a></strong>
+      {% elif data.levels %}
+      <strong><a href="/deep-scrape" class="logo">Scrapper</a></strong>
+      {% else %}
+      <strong><a href="/" class="logo">Scrapper</a></strong>
+      {% endif %}
         <span>🧹</span>
       </li>
     </ul>
@@ -41,12 +43,18 @@
   </nav>
   <main class="container article-container">
     <div class="extra-info">
-      {% if data.siteName %}
-        {{ data.siteName }}:
-      {% elif data.title %}
-        {{ data.title }}:
+      {% if data.levels %}
+        Deep Scrape Results for:
+        <a target="_blank" href="{{ data.base_url }}">{{ data.base_url }}</a>
+        <small>({{ data.total_pages }} pages scraped)</small>
+      {% else %}
+        {% if data.siteName %}
+          {{ data.siteName }}:
+        {% elif data.title %}
+          {{ data.title }}:
+        {% endif %}
+        <a target="_blank" href="{{ data.url }}">{{ data.url }}</a>
       {% endif %}
-      <a target="_blank" href="{{ data.url }}">{{ data.url }}</a>
     </div>
     <!-- article -->
     {% if data.content %}
@@ -62,6 +70,84 @@
       {% endfor %}
       </ol>
     </article>
+    {% endif %}
+    
+    <!-- deep scrape results -->
+    {% if data.levels %}
+    <div class="deep-scrape-results">
+      <h1>Deep Scraping Results</h1>
+      <div class="scraping-summary">
+        <p><strong>Base URL:</strong> <a href="{{ data.base_url }}" target="_blank">{{ data.base_url }}</a></p>
+        <p><strong>Domain:</strong> {{ data.domain }}</p>
+        <p><strong>Total Pages:</strong> {{ data.total_pages }}</p>
+        <p><strong>Levels Scraped:</strong> {{ data.levels|length }}</p>
+        <div class="summary-actions">
+          <button id="download-all-md" class="contrast outline" data-result-id="{{ data.id }}">
+            Download All as Markdown
+          </button>
+        </div>
+      </div>
+      
+      {% for level in data.levels %}
+      <article class="level-container">
+        <header class="level-header">
+          <h2>Level {{ level.level }} ({{ level.pages|length }} pages)</h2>
+        </header>
+        
+        {% for page in level.pages %}
+        <div class="page-result">
+          <div class="page-header">
+            <h3>
+              {% if page.title %}
+                {{ page.title }}
+              {% else %}
+                Page {{ loop.index }}
+              {% endif %}
+            </h3>
+            <div class="page-meta">
+              <small>
+                <a href="{{ page.url }}" target="_blank">{{ page.url }}</a>
+                {% if page.length %} • {{ page.length }} characters{% endif %}
+                {% if page.byline %} • {{ page.byline }}{% endif %}
+              </small>
+              <div class="page-actions">
+                <button class="download-md secondary outline" 
+                        data-title="{{ page.title }}" 
+                        data-url="{{ page.url }}" 
+                        data-markdown="{{ page.contentMarkdown }}">
+                  Download MD
+                </button>
+                <button onclick="toggleContentView(this)" class="secondary outline">
+                  Show Markdown
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          {% if page.excerpt %}
+          <div class="page-excerpt">
+            <p><em>{{ page.excerpt }}</em></p>
+          </div>
+          {% endif %}
+          
+          {% if page.content %}
+          <div class="page-content html-content">
+            {{ page.content|safe }}
+          </div>
+          {% endif %}
+          
+          {% if page.contentMarkdown %}
+          <div class="page-content markdown-content" style="display:none;">
+            <pre><code>{{ page.contentMarkdown }}</code></pre>
+          </div>
+          {% endif %}
+          
+          <hr>
+        </div>
+        {% endfor %}
+      </article>
+      {% endfor %}
+    </div>
     {% endif %}
     <div class="extra-info">
       The page was parsed at {{ data.date }}
@@ -81,5 +167,75 @@
     </div>
   </footer>
   <script src="/static/dark-mode.js"></script>
+  <script>
+    // Toggle between HTML and Markdown content view
+    function toggleContentView(button) {
+      const pageResult = button.closest('.page-result');
+      const htmlContent = pageResult.querySelector('.html-content');
+      const markdownContent = pageResult.querySelector('.markdown-content');
+      
+      if (htmlContent.style.display === 'none') {
+        htmlContent.style.display = 'block';
+        markdownContent.style.display = 'none';
+        button.textContent = 'Show Markdown';
+      } else {
+        htmlContent.style.display = 'none';
+        markdownContent.style.display = 'block';
+        button.textContent = 'Show HTML';
+      }
+    }
+    
+    // Download single page as Markdown
+    function downloadMarkdown(filename, content) {
+      const blob = new Blob([content], { type: 'text/markdown' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    }
+    
+    // Event listeners for download buttons
+    document.addEventListener('DOMContentLoaded', function() {
+      // Individual page downloads
+      const downloadButtons = document.querySelectorAll('.download-md');
+      downloadButtons.forEach(button => {
+        button.addEventListener('click', function() {
+          const title = this.getAttribute('data-title') || 'page';
+          const markdown = this.getAttribute('data-markdown') || '';
+          const url = this.getAttribute('data-url') || '';
+          
+          const filename = title.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.md';
+          const content = `# ${title}\n\n**URL:** ${url}\n\n---\n\n${markdown}`;
+          
+          downloadMarkdown(filename, content);
+        });
+      });
+      
+      // Download all as consolidated Markdown
+      const downloadAllButton = document.getElementById('download-all-md');
+      if (downloadAllButton) {
+        downloadAllButton.addEventListener('click', function() {
+          const resultId = this.getAttribute('data-result-id');
+          // We'll make an API call to get the consolidated markdown
+          fetch(`/api/deep-scrape/markdown?${window.location.search.substring(1)}`)
+            .then(response => response.json())
+            .then(data => {
+              if (data.markdown) {
+                const filename = `deep_scrape_${data.domain}_${new Date().toISOString().split('T')[0]}.md`;
+                downloadMarkdown(filename, data.markdown);
+              }
+            })
+            .catch(error => {
+              console.error('Error downloading consolidated markdown:', error);
+              alert('Error downloading consolidated markdown. Please try again.');
+            });
+        });
+      }
+    });
+  </script>
 </body>
 </html>

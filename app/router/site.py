@@ -18,17 +18,37 @@ async def favicon():
 
 @router.get('/', response_class=HTMLResponse, include_in_schema=False)
 @router.get('/links', response_class=HTMLResponse, include_in_schema=False)
+@router.get('/deep-scrape', response_class=HTMLResponse, include_in_schema=False)
 async def root(request: Request, _: AuthRequired):
-    for_example = (
-        'cache=no',
-        'full-content=no',
-        'screenshot=no',
-        'incognito=yes',
-        'timeout=60000',
-        'wait-until=domcontentloaded',
-        'sleep=0',
-        'device=Desktop Chrome',
-    )
+    # Set different examples based on the path
+    if request.url.path == '/deep-scrape':
+        for_example = (
+            'depth=3',
+            'max-urls-per-level=10',
+            'same-domain-only=yes',
+            'delay-between-requests=1.0',
+            'exclude-patterns=/admin,/login,/logout',
+            'cache=no',
+            'full-content=no',
+            'screenshot=yes',
+            'incognito=yes',
+            'timeout=60000',
+            'wait-until=domcontentloaded',
+            'sleep=0',
+            'device=Desktop Chrome',
+        )
+    else:
+        for_example = (
+            'cache=no',
+            'full-content=no',
+            'screenshot=no',
+            'incognito=yes',
+            'timeout=60000',
+            'wait-until=domcontentloaded',
+            'sleep=0',
+            'device=Desktop Chrome',
+        )
+    
     context = {
         'request': request,
         'revision': settings.REVISION,
