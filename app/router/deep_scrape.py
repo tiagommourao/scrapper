@@ -26,7 +26,7 @@ from fastapi.requests import Request
 from pydantic import BaseModel
 from playwright.async_api import Browser
 
-from internal import util, cache
+from internal import util, cache, redis_cache
 from internal.browser import (
     new_context,
     page_processing,
@@ -515,9 +515,9 @@ async def deep_scrape(
     host_url, full_path, query_dict = util.split_url(request.url)
 
     # get cache data if exists
-    r_id = cache.make_key(full_path)  # unique result ID
+    r_id = redis_cache.make_key(full_path)  # unique result ID
     if params.cache:
-        data = cache.load_result(key=r_id)
+        data = redis_cache.load_result(key=r_id)
         if data:
             return data
 
@@ -668,8 +668,12 @@ async def deep_scrape(
     if params.screenshot and base_screenshot:
         result['screenshotUri'] = f'{host_url}/screenshot/{r_id}'
 
-    # Save result to disk
-    cache.dump_result(result, key=r_id, screenshot=base_screenshot)
+    # Save result to cache (Redis with file fallback)
+    redis_cache.store_result(key=r_id, data=result)
+    
+    # Save screenshot separately (still using file system for now)
+    if base_screenshot:
+        cache.dump_screenshot(key=r_id, screenshot=base_screenshot)
     
     logger.info(f"Deep scrape completed. Total pages: {len(all_results)}")
     return result
@@ -757,11 +761,11 @@ async def deep_scrape_pdf(
         # Try to extract from referrer or use query parameters
         r_id = query_dict.get('url')
         if r_id:
-            r_id = cache.make_key(f"/api/deep-scrape?url={r_id}")
+            r_id = redis_cache.make_key(f"/api/deep-scrape?url={r_id}")
         else:
             return {"error": "result_id ou url é obrigatório.", "success": False}
     
-    result_data = cache.load_result(key=r_id)
+    result_data = redis_cache.load_result(key=r_id)
     if not result_data:
         return {"error": f"Resultados não encontrados para ID: {r_id}. Execute o deep scraping primeiro.", "success": False}
     
@@ -824,11 +828,11 @@ async def deep_scrape_docx(
         # Try to extract from referrer or use query parameters
         r_id = query_dict.get('url')
         if r_id:
-            r_id = cache.make_key(f"/api/deep-scrape?url={r_id}")
+            r_id = redis_cache.make_key(f"/api/deep-scrape?url={r_id}")
         else:
             return {"error": "result_id ou url é obrigatório.", "success": False}
     
-    result_data = cache.load_result(key=r_id)
+    result_data = redis_cache.load_result(key=r_id)
     if not result_data:
         return {"error": f"Resultados não encontrados para ID: {r_id}. Execute o deep scraping primeiro.", "success": False}
     

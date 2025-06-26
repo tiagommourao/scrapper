@@ -9,7 +9,7 @@ from fastapi.requests import Request
 from pydantic import BaseModel
 from playwright.async_api import Browser
 
-from internal import util, cache
+from internal import util, cache, redis_cache
 from internal.browser import (
     new_context,
     page_processing,
@@ -57,9 +57,9 @@ async def get_any_page(
     host_url, full_path, query_dict = util.split_url(request.url)
 
     # get cache data if exists
-    r_id = cache.make_key(full_path)  # unique result ID
+    r_id = redis_cache.make_key(full_path)  # unique result ID
     if params.cache:
-        data = cache.load_result(key=r_id)
+        data = redis_cache.load_result(key=r_id)
         if data:
             return data
 
@@ -101,5 +101,10 @@ async def get_any_page(
         r['screenshotUri'] = f'{host_url}/screenshot/{r_id}'
 
     # save result to disk
-    cache.dump_result(r, key=r_id, screenshot=screenshot)
+    # Save result to cache (Redis with file fallback)
+    redis_cache.store_result(key=r_id, data=r)
+    
+    # Save screenshot separately (still using file system for now)
+    if screenshot:
+        cache.dump_screenshot(key=r_id, screenshot=screenshot)
     return r

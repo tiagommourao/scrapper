@@ -8,6 +8,8 @@ services:
     container_name: scrapper
     ports:
       - "3000:3000"
+    depends_on:
+      - redis
     environment:
       - HOST=0.0.0.0
       - PORT=3000
@@ -18,6 +20,8 @@ services:
       - SCREENSHOT_QUALITY=80
       - UVICORN_WORKERS=5
       - DEBUG=false
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_ENABLED=true
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/misc/health"]
@@ -26,15 +30,20 @@ services:
       retries: 3
       start_period: 40s
 
-  # Optional: Redis for enhanced caching (future enhancement)
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: scrapper-redis
-  #   ports:
-  #     - "6379:6379"
-  #   volumes:
-  #     - redis_data:/data
-  #   restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    container_name: scrapper-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
-# volumes:
-#   redis_data:
+volumes:
+  redis_data:
