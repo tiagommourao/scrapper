@@ -780,7 +780,7 @@ async def deep_scrape_pdf(
         output_path = output_dir / filename
         
         # Generate PDF
-        base_url = result_data.get('base_url', url.url)
+        base_url = result_data.get('base_url', 'https://example.com')
         success = generate_pdf_from_scraped_html(html_content, base_url, str(output_path))
         
         if success:
