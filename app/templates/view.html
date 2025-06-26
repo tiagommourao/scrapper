@@ -294,11 +294,33 @@
           const htmlContent = pageEl.querySelector('.html-content');
           
           if (titleEl && linkEl && downloadBtn) {
+            // For HTML content, get the clean, formatted text as it appears visually
+            let cleanHtmlText = '';
+            if (htmlContent) {
+              // Create a temporary element to process the HTML
+              const tempDiv = document.createElement('div');
+              tempDiv.innerHTML = htmlContent.innerHTML;
+              
+              // Remove scripts, styles, and other unwanted elements
+              const unwantedElements = tempDiv.querySelectorAll('script, style, noscript, iframe');
+              unwantedElements.forEach(el => el.remove());
+              
+              // Get the clean text content with some basic structure
+              cleanHtmlText = tempDiv.textContent || tempDiv.innerText || '';
+              
+              // Clean up extra whitespace while preserving paragraph breaks
+              cleanHtmlText = cleanHtmlText
+                .replace(/\s+/g, ' ')  // Multiple spaces to single space
+                .replace(/\n\s*\n/g, '\n\n')  // Multiple line breaks to double
+                .trim();
+            }
+            
             pages.push({
               title: titleEl.textContent.trim(),
               url: linkEl.href,
               markdown: downloadBtn.getAttribute('data-markdown') || '',
-              html: htmlContent ? htmlContent.innerHTML : ''
+              html: htmlContent ? htmlContent.innerHTML : '',
+              htmlText: cleanHtmlText  // Clean text version for DOCX
             });
           }
         });
@@ -412,9 +434,13 @@
             htmlContent += `<h2>${index + 1}. ${page.title}</h2>`;
             htmlContent += `<p class="url"><strong>URL:</strong> <a href="${page.url}">${page.url}</a></p>`;
             
-            if (contentType === 'html' && page.html) {
-              // Use the formatted HTML content from the page
-              htmlContent += `<div class="content">${page.html}</div>`;
+            if (contentType === 'html' && page.htmlText) {
+              // Use the clean HTML text content (without tags)
+              const formattedText = page.htmlText
+                .split('\n\n')
+                .map(paragraph => `<p>${paragraph.trim()}</p>`)
+                .join('');
+              htmlContent += `<div class="content">${formattedText}</div>`;
             } else {
               // Convert markdown to basic HTML
               const htmlFromMd = page.markdown
@@ -443,33 +469,49 @@
     
     // Create RTF document (compatible with Word)
     function createRTFFromHTML(htmlContent, domain, dateStr) {
-      // Simple RTF header
-      let rtf = '{\\rtf1\\ansi\\deff0 {\\fonttbl {\\f0 Times New Roman;}}';
-      rtf += '\\f0\\fs24 ';
+      // Enhanced RTF header with better formatting
+      let rtf = '{\\rtf1\\ansi\\deff0 {\\fonttbl {\\f0 Times New Roman;}{\\f1 Arial;}}';
+      rtf += '{\\colortbl;\\red0\\green0\\blue0;\\red44\\green62\\blue80;\\red52\\green73\\blue94;}';
+      rtf += '\\f1\\fs24 ';
       
-      // Title
-      rtf += `\\b\\fs32 Deep Scraping Results: ${domain}\\b0\\fs24\\par\\par`;
+      // Title with styling
+      rtf += `\\b\\fs36\\cf2 Deep Scraping Results: ${domain}\\b0\\fs24\\cf1\\par\\par`;
       rtf += `\\b Date: \\b0 ${dateStr}\\par`;
-      rtf += `\\b Content: \\b0 Scraped web pages\\par\\par`;
+      rtf += `\\b Total Pages: \\b0 Multiple pages scraped\\par\\par`;
       rtf += '\\line\\par';
       
-      // Extract text content from HTML and convert to RTF
+      // Extract and process content more intelligently
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = htmlContent;
       
-      // Simple conversion - get text and preserve basic structure
-      const textContent = tempDiv.textContent || tempDiv.innerText || '';
-      const lines = textContent.split('\n');
+      // Remove unwanted elements
+      const unwanted = tempDiv.querySelectorAll('style, script, noscript');
+      unwanted.forEach(el => el.remove());
       
-      lines.forEach(line => {
-        const trimmedLine = line.trim();
-        if (trimmedLine) {
+      // Process headings, paragraphs, and content structure
+      const elements = tempDiv.querySelectorAll('h1, h2, h3, p, div.content');
+      
+      elements.forEach(element => {
+        const text = (element.textContent || element.innerText || '').trim();
+        if (text && text.length > 0) {
           // Escape RTF special characters
-          const rtfLine = trimmedLine
+          const rtfText = text
             .replace(/\\/g, '\\\\')
             .replace(/\{/g, '\\{')
-            .replace(/\}/g, '\\}');
-          rtf += rtfLine + '\\par ';
+            .replace(/\}/g, '\\}')
+            .replace(/[""]/g, '\\"')
+            .replace(/'/g, "\\'");
+          
+          // Apply formatting based on element type
+          if (element.tagName === 'H1') {
+            rtf += `\\b\\fs32\\cf2 ${rtfText}\\b0\\fs24\\cf1\\par\\par`;
+          } else if (element.tagName === 'H2') {
+            rtf += `\\b\\fs28\\cf3 ${rtfText}\\b0\\fs24\\cf1\\par\\par`;
+          } else if (element.tagName === 'H3') {
+            rtf += `\\b\\fs26 ${rtfText}\\b0\\fs24\\par\\par`;
+          } else {
+            rtf += `${rtfText}\\par\\par`;
+          }
         }
       });
       
@@ -518,11 +560,9 @@
           
           // Add content based on type
           let content = '';
-          if (contentType === 'html' && page.html) {
-            // Extract text from HTML
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = page.html;
-            content = tempDiv.textContent || tempDiv.innerText || '';
+          if (contentType === 'html' && page.htmlText) {
+            // Use the clean HTML text (already processed)
+            content = page.htmlText;
           } else {
             content = page.markdown.replace(/[#*]/g, '');
           }
