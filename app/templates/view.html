@@ -82,8 +82,11 @@
         <p><strong>Total Pages:</strong> {{ data.total_pages }}</p>
         <p><strong>Levels Scraped:</strong> {{ data.levels|length }}</p>
         <div class="summary-actions">
-          <button id="download-all-md" class="contrast outline" data-result-id="{{ data.id }}" onclick="showDownloadModal()">
-            Download All as Markdown
+          <button id="download-all-md" class="contrast outline" data-result-id="{{ data.id }}" onclick="showDownloadModal('md')">
+            Download All MD
+          </button>
+          <button id="download-all-html" class="secondary outline" data-result-id="{{ data.id }}" onclick="showDownloadModal('html')">
+            Download All HTML
           </button>
         </div>
       </div>
@@ -172,24 +175,9 @@
   <!-- Download Modal -->
   <div id="downloadModal" class="download-modal">
     <div class="download-modal-content">
-      <h3>Choose Download Format</h3>
-      <div class="download-options">
-        <button class="download-option" onclick="downloadAllPages('zip')">
-          <strong>ZIP Package</strong>
-          <small>Individual Markdown files in a ZIP archive</small>
-        </button>
-        <button class="download-option" onclick="downloadAllPages('md')">
-          <strong>Single Markdown</strong>
-          <small>All content in one concatenated Markdown file</small>
-        </button>
-        <button class="download-option" onclick="downloadAllPages('docx')">
-          <strong>Word Document</strong>
-          <small>Formatted DOCX document</small>
-        </button>
-        <button class="download-option" onclick="downloadAllPages('pdf')">
-          <strong>PDF Document</strong>
-          <small>Formatted PDF document</small>
-        </button>
+      <h3 id="modalTitle">Choose Download Format</h3>
+      <div id="downloadOptions" class="download-options">
+        <!-- Options will be populated by JavaScript -->
       </div>
       <div class="modal-actions">
         <button class="secondary" onclick="hideDownloadModal()">Cancel</button>
@@ -200,7 +188,7 @@
   <script src="/static/dark-mode.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/html-docx-js@0.4.0/dist/html-docx.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
   <script>
     // Toggle between HTML and Markdown content view
     function toggleContentView(button) {
@@ -231,9 +219,51 @@
       levelContainer.classList.toggle('collapsed');
     }
     
-    // Show download modal
-    function showDownloadModal() {
-      document.getElementById('downloadModal').style.display = 'flex';
+    // Current download type
+    let currentDownloadType = 'md';
+    
+    // Show download modal with different options based on type
+    function showDownloadModal(type) {
+      currentDownloadType = type;
+      const modal = document.getElementById('downloadModal');
+      const title = document.getElementById('modalTitle');
+      const optionsContainer = document.getElementById('downloadOptions');
+      
+      if (type === 'md') {
+        title.textContent = 'Download Markdown Formats';
+        optionsContainer.innerHTML = `
+          <button class="download-option" onclick="downloadAllPages('zip')">
+            <strong>ZIP Package</strong>
+            <small>Individual Markdown files in a ZIP archive</small>
+          </button>
+          <button class="download-option" onclick="downloadAllPages('md')">
+            <strong>Single Markdown</strong>
+            <small>All content in one concatenated Markdown file</small>
+          </button>
+          <button class="download-option" onclick="downloadAllPages('pdf-md')">
+            <strong>PDF from Markdown</strong>
+            <small>PDF document generated from Markdown content</small>
+          </button>
+          <button class="download-option" onclick="downloadAllPages('docx-md')">
+            <strong>Word from Markdown</strong>
+            <small>DOCX document generated from Markdown content</small>
+          </button>
+        `;
+      } else if (type === 'html') {
+        title.textContent = 'Download HTML Formats';
+        optionsContainer.innerHTML = `
+          <button class="download-option" onclick="downloadAllPages('pdf-html')">
+            <strong>PDF from HTML</strong>
+            <small>PDF with formatted HTML layout from the page</small>
+          </button>
+          <button class="download-option" onclick="downloadAllPages('docx-html')">
+            <strong>Word from HTML</strong>
+            <small>DOCX with formatted HTML layout from the page</small>
+          </button>
+        `;
+      }
+      
+      modal.style.display = 'flex';
     }
     
     // Hide download modal
@@ -254,24 +284,26 @@
       document.body.removeChild(a);
     }
     
-    // Get all page data from current DOM
-    function getAllPageData() {
-      const pages = [];
-      document.querySelectorAll('.page-result').forEach(pageEl => {
-        const titleEl = pageEl.querySelector('.page-title-toggle');
-        const linkEl = pageEl.querySelector('.page-meta a');
-        const downloadBtn = pageEl.querySelector('.download-md');
-        
-        if (titleEl && linkEl && downloadBtn) {
-          pages.push({
-            title: titleEl.textContent.trim(),
-            url: linkEl.href,
-            markdown: downloadBtn.getAttribute('data-markdown') || ''
-          });
-        }
-      });
-      return pages;
-    }
+          // Get all page data from current DOM
+      function getAllPageData() {
+        const pages = [];
+        document.querySelectorAll('.page-result').forEach(pageEl => {
+          const titleEl = pageEl.querySelector('.page-title-toggle');
+          const linkEl = pageEl.querySelector('.page-meta a');
+          const downloadBtn = pageEl.querySelector('.download-md');
+          const htmlContent = pageEl.querySelector('.html-content');
+          
+          if (titleEl && linkEl && downloadBtn) {
+            pages.push({
+              title: titleEl.textContent.trim(),
+              url: linkEl.href,
+              markdown: downloadBtn.getAttribute('data-markdown') || '',
+              html: htmlContent ? htmlContent.innerHTML : ''
+            });
+          }
+        });
+        return pages;
+      }
     
     // Download all pages in different formats
     async function downloadAllPages(format) {
@@ -286,23 +318,29 @@
       const domain = document.querySelector('.scraping-summary p strong')?.parentElement?.textContent?.match(/Domain: (.*)/)?.[1] || 'unknown';
       const dateStr = new Date().toISOString().split('T')[0];
       
-      try {
-        switch (format) {
-          case 'zip':
-            await downloadAsZip(pages, domain, dateStr);
-            break;
-          case 'md':
-            await downloadAsSingleMarkdown(pages, domain, dateStr);
-            break;
-          case 'docx':
-            await downloadAsDocx(pages, domain, dateStr);
-            break;  
-          case 'pdf':
-            await downloadAsPdf(pages, domain, dateStr);
-            break;
-          default:
-            alert('Unsupported format');
-        }
+              try {
+          switch (format) {
+            case 'zip':
+              await downloadAsZip(pages, domain, dateStr);
+              break;
+            case 'md':
+              await downloadAsSingleMarkdown(pages, domain, dateStr);
+              break;
+            case 'docx-md':
+              await downloadAsDocx(pages, domain, dateStr, 'markdown');
+              break;  
+            case 'docx-html':
+              await downloadAsDocx(pages, domain, dateStr, 'html');
+              break;
+            case 'pdf-md':
+              await downloadAsPdf(pages, domain, dateStr, 'markdown');
+              break;
+            case 'pdf-html':
+              await downloadAsPdf(pages, domain, dateStr, 'html');
+              break;
+            default:
+              alert('Unsupported format');
+          }
       } catch (error) {
         console.error('Download error:', error);
         alert('Error during download. Please try again.');
@@ -338,62 +376,179 @@
       downloadFile(`deep_scrape_${domain}_${dateStr}.md`, content, 'text/markdown');
     }
     
-    // Download as DOCX
-    async function downloadAsDocx(pages, domain, dateStr) {
-      let htmlContent = `<h1>Deep Scraping Results: ${domain}</h1>`;
-      htmlContent += `<p><strong>Date:</strong> ${dateStr}</p>`;
-      htmlContent += `<p><strong>Total Pages:</strong> ${pages.length}</p><hr>`;
-      
-      pages.forEach((page, index) => {
-        htmlContent += `<h2>${index + 1}. ${page.title}</h2>`;
-        htmlContent += `<p><strong>URL:</strong> <a href="${page.url}">${page.url}</a></p>`;
-        htmlContent += `<div>${page.markdown.replace(/\n/g, '<br>')}</div><hr>`;
-      });
-      
-      const converted = htmlDocx.asBlob(htmlContent);
-      downloadFile(`deep_scrape_${domain}_${dateStr}.docx`, converted, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    }
-    
-    // Download as PDF
-    async function downloadAsPdf(pages, domain, dateStr) {
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF();
-      
-      // Title page
-      pdf.setFontSize(20);
-      pdf.text(`Deep Scraping Results: ${domain}`, 20, 30);
-      pdf.setFontSize(12);
-      pdf.text(`Date: ${dateStr}`, 20, 45);
-      pdf.text(`Total Pages: ${pages.length}`, 20, 55);
-      
-      let yPosition = 80;
-      const pageHeight = pdf.internal.pageSize.height;
-      const margin = 20;
-      
-      pages.forEach((page, index) => {
-        // Check if we need a new page
-        if (yPosition > pageHeight - 40) {
-          pdf.addPage();
-          yPosition = 30;
+          // Download as DOCX
+      async function downloadAsDocx(pages, domain, dateStr, contentType = 'markdown') {
+        try {
+          let htmlContent = `
+            <html>
+              <head>
+                <meta charset="utf-8">
+                <title>Deep Scraping Results: ${domain}</title>
+                <style>
+                  body { font-family: Arial, sans-serif; margin: 40px; }
+                  h1 { color: #2c3e50; border-bottom: 2px solid #3498db; }
+                  h2 { color: #34495e; margin-top: 30px; }
+                  h3 { color: #5a6c7d; }
+                  .meta { color: #7f8c8d; font-size: 14px; margin-bottom: 20px; }
+                  .url { color: #3498db; }
+                  .content { margin: 20px 0; line-height: 1.6; }
+                  .page-break { page-break-before: always; }
+                  hr { border: none; border-top: 1px solid #ecf0f1; margin: 30px 0; }
+                </style>
+              </head>
+              <body>
+                <h1>Deep Scraping Results: ${domain}</h1>
+                <div class="meta">
+                  <p><strong>Date:</strong> ${dateStr}</p>
+                  <p><strong>Total Pages:</strong> ${pages.length}</p>
+                  <p><strong>Content Type:</strong> ${contentType.toUpperCase()}</p>
+                </div>
+                <hr>
+          `;
+          
+          pages.forEach((page, index) => {
+            if (index > 0) htmlContent += '<div class="page-break"></div>';
+            
+            htmlContent += `<h2>${index + 1}. ${page.title}</h2>`;
+            htmlContent += `<p class="url"><strong>URL:</strong> <a href="${page.url}">${page.url}</a></p>`;
+            
+            if (contentType === 'html' && page.html) {
+              // Use the formatted HTML content from the page
+              htmlContent += `<div class="content">${page.html}</div>`;
+            } else {
+              // Convert markdown to basic HTML
+              const htmlFromMd = page.markdown
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/\n/g, '<br>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+              htmlContent += `<div class="content"><p>${htmlFromMd}</p></div>`;
+            }
+            
+            htmlContent += '<hr>';
+          });
+          
+          htmlContent += '</body></html>';
+          
+          // Create a simple RTF document (which Word can read)
+          const rtfContent = createRTFFromHTML(htmlContent, domain, dateStr);
+          downloadFile(`deep_scrape_${domain}_${dateStr}_${contentType}.rtf`, rtfContent, 'application/rtf');
+          
+        } catch (error) {
+          console.error('DOCX generation error:', error);
+          alert('Error generating DOCX. Please try again.');
         }
-        
-        // Page title
-        pdf.setFontSize(14);
-        pdf.text(`${index + 1}. ${page.title}`, margin, yPosition);
-        yPosition += 10;
-        
-        // URL
-        pdf.setFontSize(10);
-        pdf.text(`URL: ${page.url}`, margin, yPosition);
-        yPosition += 10;
-        
-        // Content (simplified)
-        const lines = pdf.splitTextToSize(page.markdown.substring(0, 500) + '...', pdf.internal.pageSize.width - 2 * margin);
-        pdf.text(lines, margin, yPosition);
-        yPosition += lines.length * 5 + 20;
+      }
+    
+    // Create RTF document (compatible with Word)
+    function createRTFFromHTML(htmlContent, domain, dateStr) {
+      // Simple RTF header
+      let rtf = '{\\rtf1\\ansi\\deff0 {\\fonttbl {\\f0 Times New Roman;}}';
+      rtf += '\\f0\\fs24 ';
+      
+      // Title
+      rtf += `\\b\\fs32 Deep Scraping Results: ${domain}\\b0\\fs24\\par\\par`;
+      rtf += `\\b Date: \\b0 ${dateStr}\\par`;
+      rtf += `\\b Content: \\b0 Scraped web pages\\par\\par`;
+      rtf += '\\line\\par';
+      
+      // Extract text content from HTML and convert to RTF
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = htmlContent;
+      
+      // Simple conversion - get text and preserve basic structure
+      const textContent = tempDiv.textContent || tempDiv.innerText || '';
+      const lines = textContent.split('\n');
+      
+      lines.forEach(line => {
+        const trimmedLine = line.trim();
+        if (trimmedLine) {
+          // Escape RTF special characters
+          const rtfLine = trimmedLine
+            .replace(/\\/g, '\\\\')
+            .replace(/\{/g, '\\{')
+            .replace(/\}/g, '\\}');
+          rtf += rtfLine + '\\par ';
+        }
       });
       
-      pdf.save(`deep_scrape_${domain}_${dateStr}.pdf`);
+      rtf += '}';
+      return new Blob([rtf], { type: 'application/rtf' });
+    }
+
+    // Download as PDF
+    async function downloadAsPdf(pages, domain, dateStr, contentType = 'markdown') {
+      try {
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF();
+        
+        // Title page
+        pdf.setFontSize(20);
+        pdf.text(`Deep Scraping Results: ${domain}`, 20, 30);
+        pdf.setFontSize(12);
+        pdf.text(`Date: ${dateStr}`, 20, 45);
+        pdf.text(`Total Pages: ${pages.length}`, 20, 55);
+        pdf.text(`Content Type: ${contentType.toUpperCase()}`, 20, 65);
+        
+        let yPosition = 85;
+        const pageHeight = pdf.internal.pageSize.height;
+        const margin = 20;
+        
+        pages.forEach((page, index) => {
+          // Check if we need a new page
+          if (yPosition > pageHeight - 40) {
+            pdf.addPage();
+            yPosition = 30;
+          }
+          
+          // Page title
+          pdf.setFontSize(14);
+          pdf.text(`${index + 1}. ${page.title}`, margin, yPosition);
+          yPosition += 10;
+          
+          // URL
+          pdf.setFontSize(10);
+          const urlLines = pdf.splitTextToSize(`URL: ${page.url}`, pdf.internal.pageSize.width - 2 * margin);
+          urlLines.forEach(line => {
+            pdf.text(line, margin, yPosition);
+            yPosition += 7;
+          });
+          yPosition += 5;
+          
+          // Add content based on type
+          let content = '';
+          if (contentType === 'html' && page.html) {
+            // Extract text from HTML
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = page.html;
+            content = tempDiv.textContent || tempDiv.innerText || '';
+          } else {
+            content = page.markdown.replace(/[#*]/g, '');
+          }
+          
+          // Content (with length limit for PDF)
+          const limitedContent = content.length > 800 ? content.substring(0, 800) + '...' : content;
+          const lines = pdf.splitTextToSize(limitedContent, pdf.internal.pageSize.width - 2 * margin);
+          
+          lines.forEach(line => {
+            if (yPosition > pageHeight - 20) {
+              pdf.addPage();
+              yPosition = 30;
+            }
+            pdf.text(line, margin, yPosition);
+            yPosition += 5;
+          });
+          
+          yPosition += 15;
+        });
+        
+        pdf.save(`deep_scrape_${domain}_${dateStr}_${contentType}.pdf`);
+        
+      } catch (error) {
+        console.error('PDF generation error:', error);
+        alert('Error generating PDF. Please try again.');
+      }
     }
     
     // Event listeners

@@ -297,7 +297,7 @@ async def deep_scrape(
                             article = await page.evaluate(f.read() % parser_args)
                         
                         # Extract links for next level
-                        if current_level < deep_scrape_params.depth - 1:
+                        if current_level + 1 < deep_scrape_params.depth:
                             with open(PARSER_SCRIPTS_DIR / 'links.js', encoding='utf-8') as f:
                                 links = await page.evaluate(f.read() % {})
                             
