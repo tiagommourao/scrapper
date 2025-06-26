@@ -426,21 +426,288 @@ ls -la app/static/output/
 
 ## 🔮 Roadmap e Melhorias Futuras
 
-### Versão 3.0 (Planejado)
-- [ ] **Processamento paralelo** real por nível
-- [ ] **Base de dados** PostgreSQL para resultados grandes
-- [ ] **API de progresso** WebSocket em tempo real
-- [ ] **Webhooks** para notificações de conclusão
-- [ ] **ML para relevância** de conteúdo automática
-- [ ] **OCR integrado** para imagens com texto
-- [ ] **Exportação para Notion/Obsidian**
+### Versão 2.1 (Próxima - Redis Integration) 🚀
+**Migração Inteligente para Redis Cache**
+- [ ] **Cache Redis Multinível** substituindo sistema de arquivos
+  ```python
+  # Estruturas Redis planejadas
+  scrape_results:{id}     # Hash com metadados do scraping
+  scrape_pages:{id}       # List com páginas processadas
+  scrape_progress:{id}    # Hash com progresso em tempo real
+  scrape_queue           # List para processamento em background
+  ```
+- [ ] **Sistema de TTL Automático** para limpeza inteligente
+- [ ] **Processamento em Background** com Redis Queues
+- [ ] **API de Progresso em Tempo Real** via Redis Pub/Sub
+- [ ] **Cache de Screenshots** otimizado
+- [ ] **Rate Limiting Distribuído** por domínio
+- [ ] **Métricas Live** de performance
 
-### Integrações Futuras
+### Versão 2.2 (Redis Avançado) ⚡
+**Funcionalidades Avançadas com Redis**
+- [ ] **WebSocket API** para progresso em tempo real
+- [ ] **Sessões de Usuário** para múltiplos scrapings simultâneos
+- [ ] **Cache Inteligente** por similaridade de URLs
+- [ ] **Queue System** para processamento assíncrono
+- [ ] **Distributed Locking** para concorrência
+- [ ] **Analytics em Tempo Real** de uso
+- [ ] **Auto-scaling** baseado em carga
+
+### Versão 3.0 (PostgreSQL + Analytics) 📊
+**Persistência e Análise Avançada** (Futuro)
+- [ ] **PostgreSQL** para persistência permanente de resultados importantes
+- [ ] **Data Pipeline** Redis → PostgreSQL para analytics
+- [ ] **Full-Text Search** com índices otimizados
+- [ ] **Dashboard Analytics** com métricas históricas
+- [ ] **ML para Relevância** de conteúdo automática
+- [ ] **API GraphQL** para queries complexas
+- [ ] **Data Export** para ferramentas BI
+
+### Arquitetura Evolutiva Planejada
+
+#### 🏗️ Fase Atual (v2.0)
+```
+┌─────────────┐    ┌──────────────┐    ┌─────────────┐
+│   Browser   │───▶│   FastAPI    │───▶│ File Cache  │
+│ (Playwright)│    │   (Python)   │    │   (JSON)    │
+└─────────────┘    └──────────────┘    └─────────────┘
+```
+
+#### 🚀 Próxima Fase (v2.1 - Redis)
+```
+┌─────────────┐    ┌──────────────┐    ┌─────────────┐
+│   Browser   │───▶│   FastAPI    │───▶│    Redis    │
+│ (Playwright)│    │   (Python)   │    │  (Cache +   │
+└─────────────┘    └──────────────┘    │   Queue)    │
+                           │            └─────────────┘
+                           ▼                   │
+                   ┌──────────────┐           │
+                   │   WebSocket  │◀──────────┘
+                   │  (Progress)  │
+                   └──────────────┘
+```
+
+#### 🎯 Fase Futura (v3.0 - Full Stack)
+```
+┌─────────────┐    ┌──────────────┐    ┌─────────────┐
+│   Browser   │───▶│   FastAPI    │───▶│    Redis    │
+│ (Playwright)│    │   (Python)   │    │  (Cache)    │
+└─────────────┘    └──────────────┘    └─────────────┘
+                           │                   │
+                           ▼                   ▼
+                   ┌──────────────┐    ┌─────────────┐
+                   │ PostgreSQL   │◀───│  Pipeline   │
+                   │ (Analytics)  │    │  (ETL)      │
+                   └──────────────┘    └─────────────┘
+```
+
+### 🎯 Por que Redis Primeiro?
+
+#### Vantagens Imediatas
+```python
+# Performance Superior
+- 10-100x mais rápido que arquivo para cache
+- Operações atômicas nativas
+- TTL automático sem código adicional
+
+# Estruturas de Dados Ricas
+redis_client.hset(f"scrape:{id}", mapping={
+    "status": "processing",
+    "progress": "45%",
+    "pages_found": 23,
+    "current_level": 2
+})
+
+# Pub/Sub para Tempo Real
+redis_client.publish(f"progress:{id}", json.dumps({
+    "level": 2,
+    "pages_processed": 15,
+    "eta_seconds": 120
+}))
+```
+
+#### Casos de Uso Ideais
+- **Cache Temporário**: Resultados com TTL configurável
+- **Processamento Assíncrono**: Queues para deep scraping
+- **Progresso em Tempo Real**: Pub/Sub para WebSocket
+- **Rate Limiting**: Contadores distribuídos
+- **Sessões**: Estado de usuário temporário
+
+### 🛠️ Plano de Implementação Redis
+
+#### Fase 1: Migração do Cache (1-2 semanas)
+```python
+# Substituir cache de arquivo por Redis
+class RedisCache:
+    def __init__(self):
+        self.redis = redis.Redis(host='redis', port=6379, db=0)
+    
+    def store_result(self, key: str, data: dict, ttl: int = 3600):
+        """Armazenar resultado com TTL automático"""
+        self.redis.hset(f"scrape:{key}", mapping=data)
+        self.redis.expire(f"scrape:{key}", ttl)
+    
+    def get_result(self, key: str) -> dict:
+        """Recuperar resultado do cache"""
+        return self.redis.hgetall(f"scrape:{key}")
+```
+
+#### Fase 2: Processamento Assíncrono (2-3 semanas)
+```python
+# Background processing com Redis Queue
+import rq
+from rq import Worker
+
+def deep_scrape_async(url: str, params: dict):
+    """Processar scraping em background"""
+    job = redis_queue.enqueue(
+        'scrape_worker.deep_scrape_job',
+        url, params,
+        job_timeout='30m'
+    )
+    return job.id
+
+# Worker dedicado
+worker = Worker(['scrape_queue'], connection=redis_client)
+worker.work()
+```
+
+#### Fase 3: Progresso em Tempo Real (1-2 semanas)
+```python
+# WebSocket + Redis Pub/Sub
+@app.websocket("/ws/progress/{scrape_id}")
+async def websocket_progress(websocket: WebSocket, scrape_id: str):
+    await websocket.accept()
+    
+    pubsub = redis_client.pubsub()
+    pubsub.subscribe(f"progress:{scrape_id}")
+    
+    for message in pubsub.listen():
+        if message['type'] == 'message':
+            await websocket.send_text(message['data'])
+```
+
+### Integrações Futuras (v2.x)
 - [ ] **Slack/Discord** bots para scraping
-- [ ] **GitHub Actions** para scraping automatizado
+- [ ] **GitHub Actions** para scraping automatizado  
 - [ ] **S3/Cloud Storage** para arquivos grandes
 - [ ] **Elasticsearch** para busca full-text
 - [ ] **Grafana** dashboards para métricas
+
+### 🚀 Migração Redis: Benefícios Técnicos
+
+#### Performance Comparativa
+```python
+# Operações por segundo (estimativa)
+File Cache:     ~100 ops/sec    (I/O bound)
+Redis Cache:    ~10,000 ops/sec (Memory bound)
+PostgreSQL:     ~1,000 ops/sec  (Network + Disk)
+
+# Latência típica
+File Cache:     10-50ms   (disk read/write)
+Redis Cache:    0.1-1ms   (memory access)
+PostgreSQL:     1-10ms    (network + query)
+```
+
+#### Estrutura de Dados Redis
+```python
+# Schema Redis planejado
+{
+    # Metadados do scraping
+    "scrape:{id}": {
+        "status": "completed|processing|failed",
+        "base_url": "https://example.com",
+        "domain": "example.com", 
+        "total_pages": 25,
+        "current_level": 3,
+        "progress_percent": 85,
+        "started_at": "2024-01-15T10:30:00Z",
+        "estimated_completion": "2024-01-15T10:45:00Z"
+    },
+    
+    # Páginas processadas (List)
+    "scrape_pages:{id}": [
+        {"url": "...", "title": "...", "level": 0},
+        {"url": "...", "title": "...", "level": 1}
+    ],
+    
+    # Queue de processamento
+    "scrape_queue": ["job_id_1", "job_id_2", "job_id_3"],
+    
+    # Rate limiting por domínio
+    "rate_limit:example.com": 5,  # requests nos últimos 5 segundos
+    
+    # Cache de screenshots
+    "screenshot:{url_hash}": "base64_image_data"
+}
+```
+
+#### Docker Compose Atualizado
+```yaml
+# docker-compose.redis.yml (próxima versão)
+version: '3.8'
+services:
+  scrapper:
+    build: .
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    ports:
+      - "3000:3000"
+  
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+  
+  redis-worker:
+    build: .
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    command: python -m app.workers.scrape_worker
+
+volumes:
+  redis_data:
+```
+
+### 📋 Checklist de Migração
+
+#### Preparação (Antes da Implementação)
+- [ ] **Análise de Dados**: Mapear estruturas atuais para Redis
+- [ ] **Benchmarks**: Testar performance Redis vs arquivo
+- [ ] **Backup Strategy**: Plano para migração de dados existentes
+- [ ] **Monitoring**: Configurar Redis monitoring
+
+#### Implementação Incremental
+- [ ] **Fase 1**: Redis como cache secundário (fallback para arquivo)
+- [ ] **Fase 2**: Redis como cache primário (arquivo como backup)
+- [ ] **Fase 3**: Apenas Redis (remover sistema de arquivo)
+- [ ] **Fase 4**: Adicionar funcionalidades avançadas (pub/sub, queues)
+
+#### Validação e Rollback
+- [ ] **Testes de Carga**: Comparar performance antes/depois
+- [ ] **Testes de Funcionalidade**: Validar todos os endpoints
+- [ ] **Plano de Rollback**: Reverter para arquivo se necessário
+- [ ] **Monitoring**: Alertas para problemas de Redis
+
+### 🎯 Próximos Passos Sugeridos
+
+1. **Semana 1-2**: Setup Redis básico + migração de cache simples
+2. **Semana 3-4**: Implementar background processing
+3. **Semana 5-6**: WebSocket + progresso em tempo real
+4. **Semana 7-8**: Otimizações e refinamentos
+
+**Quer começar com a implementação Redis? Posso ajudar com:**
+- Setup inicial do Redis no Docker Compose
+- Migração incremental do sistema de cache
+- Implementação de background jobs
+- WebSocket para progresso em tempo real
 
 ## 🤝 Contribuindo
 
