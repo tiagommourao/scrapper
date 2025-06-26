@@ -330,7 +330,7 @@ details textarea {
 }
 
 .article-container  {
-  max-width: 800px !important;
+  max-width: 90% !important;
   padding-top: 0;
 }
 
@@ -546,6 +546,137 @@ article.links ol li {
         margin-left: 0;
         margin-top: 0.5rem;
     }
+}
+
+/* Collapsible page styles */
+.page-result.collapsed .page-content,
+.page-result.collapsed .page-excerpt,
+.page-result.collapsed .page-meta {
+    display: none;
+}
+
+.page-title-toggle {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.page-title-toggle::before {
+    content: "▼";
+    transition: transform 0.2s ease;
+    color: var(--primary-color);
+    font-size: 0.8rem;
+}
+
+.page-result.collapsed .page-title-toggle::before {
+    transform: rotate(-90deg);
+}
+
+.page-title-toggle:hover {
+    color: var(--primary-color);
+}
+
+/* Download options modal */
+.download-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.download-modal-content {
+    background: var(--card-background-color);
+    padding: 2rem;
+    border-radius: var(--border-radius);
+    max-width: 400px;
+    width: 90%;
+    box-shadow: var(--card-box-shadow);
+}
+
+.download-modal h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    color: var(--h3-color);
+}
+
+.download-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.download-option {
+    width: 100%;
+    padding: 0.75rem;
+    text-align: left;
+    border: 1px solid var(--card-border-color);
+    border-radius: var(--border-radius);
+    background: var(--card-background-color);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.download-option:hover {
+    background: var(--secondary-background);
+    border-color: var(--primary-color);
+}
+
+.download-option strong {
+    display: block;
+    color: var(--primary-color);
+    margin-bottom: 0.25rem;
+}
+
+.download-option small {
+    color: var(--muted-color);
+    font-size: 0.875rem;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+    justify-content: flex-end;
+}
+
+/* Level header improvements */
+.level-header {
+    background: var(--secondary-background);
+    padding: 1rem;
+    margin: 0;
+    border-bottom: 1px solid var(--card-border-color);
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.level-header::before {
+    content: "▼";
+    transition: transform 0.2s ease;
+    color: var(--primary-color);
+    font-size: 1rem;
+}
+
+.level-container.collapsed .level-header::before {
+    transform: rotate(-90deg);
+}
+
+.level-container.collapsed .level-content {
+    display: none;
+}
+
+.level-header:hover {
+    background: var(--code-background-color);
 }
 
 /* Enhanced styles for Markdown functionality */
