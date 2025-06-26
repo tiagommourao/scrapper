@@ -279,11 +279,16 @@
         try {
           hideDownloadModal();
           
-          // Extract current URL parameters from window location
-          const urlParams = new URLSearchParams(window.location.search);
+          // Get result ID from the page data attribute
+          const resultId = document.querySelector('[data-result-id]')?.getAttribute('data-result-id');
           
-          // Build API URL with all current parameters
-          const apiUrl = `/api/deep-scrape/${format}?${urlParams.toString()}`;
+          if (!resultId) {
+            showErrorMessage('ID do resultado não encontrado. Faça o deep scraping primeiro.');
+            return;
+          }
+          
+          // Build API URL with result_id
+          const apiUrl = `/api/deep-scrape/${format}?result_id=${encodeURIComponent(resultId)}`;
           
           // Show loading indicator
           showLoadingMessage(`Gerando ${format.toUpperCase()} de alta qualidade no servidor...`);

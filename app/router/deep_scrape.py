@@ -732,13 +732,14 @@ def generate_consolidated_markdown(result_data: dict) -> str:
 @router.get('/pdf', summary='Generate high-quality PDF from deep scrape results using WeasyPrint')
 async def deep_scrape_pdf(
     request: Request,
-    url: Annotated[URLParam, Depends()],
-    params: Annotated[CommonQueryParams, Depends()],
-    browser_params: Annotated[BrowserQueryParams, Depends()],
-    proxy_params: Annotated[ProxyQueryParams, Depends()],
-    readability_params: Annotated[ReadabilityQueryParams, Depends()],
-    deep_scrape_params: Annotated[DeepScrapeQueryParams, Depends()],
     _: AuthRequired,
+    result_id: Annotated[
+        str | None,
+        Query(
+            alias='result_id',
+            description='Result ID from previous deep scrape operation',
+        ),
+    ] = None,
 ) -> dict:
     """
     Generate a high-quality PDF document from deep scrape results using WeasyPrint.
@@ -749,11 +750,20 @@ async def deep_scrape_pdf(
     
     # Get existing deep scrape results
     host_url, full_path, query_dict = util.split_url(request.url)
-    r_id = cache.make_key(full_path.replace('/pdf', ''))  # Remove /pdf suffix
+    
+    if result_id:
+        r_id = result_id
+    else:
+        # Try to extract from referrer or use query parameters
+        r_id = query_dict.get('url')
+        if r_id:
+            r_id = cache.make_key(f"/api/deep-scrape?url={r_id}")
+        else:
+            return {"error": "result_id ou url é obrigatório.", "success": False}
     
     result_data = cache.load_result(key=r_id)
     if not result_data:
-        return {"error": "Resultados não encontrados. Execute o deep scraping primeiro.", "success": False}
+        return {"error": f"Resultados não encontrados para ID: {r_id}. Execute o deep scraping primeiro.", "success": False}
     
     try:
         # Generate consolidated HTML
@@ -792,13 +802,14 @@ async def deep_scrape_pdf(
 @router.get('/docx', summary='Generate high-quality DOCX from deep scrape results using Pandoc')
 async def deep_scrape_docx(
     request: Request,
-    url: Annotated[URLParam, Depends()],
-    params: Annotated[CommonQueryParams, Depends()],
-    browser_params: Annotated[BrowserQueryParams, Depends()],
-    proxy_params: Annotated[ProxyQueryParams, Depends()],
-    readability_params: Annotated[ReadabilityQueryParams, Depends()],
-    deep_scrape_params: Annotated[DeepScrapeQueryParams, Depends()],
     _: AuthRequired,
+    result_id: Annotated[
+        str | None,
+        Query(
+            alias='result_id',
+            description='Result ID from previous deep scrape operation',
+        ),
+    ] = None,
 ) -> dict:
     """
     Generate a high-quality DOCX document from deep scrape results using Pandoc.
@@ -806,11 +817,20 @@ async def deep_scrape_docx(
     """
     # Get existing deep scrape results
     host_url, full_path, query_dict = util.split_url(request.url)
-    r_id = cache.make_key(full_path.replace('/docx', ''))  # Remove /docx suffix
+    
+    if result_id:
+        r_id = result_id
+    else:
+        # Try to extract from referrer or use query parameters
+        r_id = query_dict.get('url')
+        if r_id:
+            r_id = cache.make_key(f"/api/deep-scrape?url={r_id}")
+        else:
+            return {"error": "result_id ou url é obrigatório.", "success": False}
     
     result_data = cache.load_result(key=r_id)
     if not result_data:
-        return {"error": "Resultados não encontrados. Execute o deep scraping primeiro.", "success": False}
+        return {"error": f"Resultados não encontrados para ID: {r_id}. Execute o deep scraping primeiro.", "success": False}
     
     try:
         # Generate consolidated HTML
