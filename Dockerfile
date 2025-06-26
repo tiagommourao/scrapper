@@ -1,7 +1,11 @@
 FROM mcr.microsoft.com/playwright/python:v1.51.0-noble
 # python==3.12.3
 
-# RUN apt update
+# Install system dependencies including Pandoc
+RUN apt update && apt install -y \
+    pandoc \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r ./requirements.txt
 

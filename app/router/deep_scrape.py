@@ -6,8 +6,20 @@ from urllib.parse import urljoin, urlparse
 import logging
 import re
 import html
+import subprocess
+import os
+import tempfile
+from pathlib import Path
 
 import tldextract
+
+# Importações condicionais para WeasyPrint (pode não estar disponível em todos os ambientes)
+try:
+    from weasyprint import HTML, CSS
+    WEASYPRINT_AVAILABLE = True
+except ImportError:
+    WEASYPRINT_AVAILABLE = False
+    print("WeasyPrint não disponível. PDFs serão gerados usando método alternativo.")
 
 from fastapi import APIRouter, Query, Depends
 from fastapi.requests import Request
@@ -125,6 +137,294 @@ def _convert_list(list_content: str, ordered: bool = False) -> str:
             result.append(f"- {item}")
     
     return '\n'.join(result) + '\n\n'
+
+
+def generate_pdf_from_scraped_html(scraped_html_content: str, base_url: str, output_path: str) -> bool:
+    """
+    Gera um PDF de alta fidelidade a partir de um conteúdo HTML usando WeasyPrint.
+    """
+    if not WEASYPRINT_AVAILABLE:
+        logging.error("WeasyPrint não está disponível. Não é possível gerar PDF.")
+        return False
+    
+    try:
+        logging.info(f"Gerando PDF para: {output_path}")
+        
+        # Criar diretório de saída se não existir
+        output_dir = Path(output_path).parent
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Criar HTML object
+        html = HTML(string=scraped_html_content, base_url=base_url)
+        
+        # CSS customizado para melhor formatação
+        stylesheet = CSS(string='''
+            @page { 
+                size: A4; 
+                margin: 2cm; 
+                @bottom-center {
+                    content: counter(page) " / " counter(pages);
+                    font-size: 10px;
+                    color: #666;
+                }
+            }
+            body { 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                line-height: 1.6;
+                color: #333;
+            }
+            h1, h2, h3, h4, h5, h6 {
+                color: #2c3e50;
+                margin-top: 1.5em;
+                margin-bottom: 0.5em;
+            }
+            h1 { border-bottom: 2px solid #3498db; padding-bottom: 0.3em; }
+            h2 { border-bottom: 1px solid #e1e4e8; padding-bottom: 0.3em; }
+            ul, ol { 
+                list-style-position: inside;
+                margin: 1em 0;
+            }
+            a { 
+                color: #0066cc; 
+                text-decoration: none;
+            }
+            a:hover { text-decoration: underline; }
+            img { 
+                max-width: 100%; 
+                height: auto; 
+                margin: 1em 0;
+            }
+            code {
+                background-color: #f6f8fa;
+                padding: 0.2em 0.4em;
+                border-radius: 3px;
+                font-family: 'Courier New', monospace;
+            }
+            pre {
+                background-color: #f6f8fa;
+                padding: 1em;
+                border-radius: 5px;
+                overflow-x: auto;
+            }
+            blockquote {
+                border-left: 4px solid #dfe2e5;
+                padding-left: 1em;
+                color: #6a737d;
+                margin: 1em 0;
+            }
+            table {
+                border-collapse: collapse;
+                width: 100%;
+                margin: 1em 0;
+            }
+            th, td {
+                border: 1px solid #dfe2e5;
+                padding: 0.5em;
+                text-align: left;
+            }
+            th {
+                background-color: #f6f8fa;
+                font-weight: bold;
+            }
+        ''')
+        
+        # Gerar PDF
+        html.write_pdf(output_path, stylesheets=[stylesheet])
+        logging.info(f"✅ PDF gerado com sucesso em: {output_path}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"❌ Erro ao gerar PDF com WeasyPrint: {e}")
+        return False
+
+
+def generate_docx_from_scraped_html(scraped_html_content: str, output_path: str) -> bool:
+    """
+    Usa o pandoc para converter HTML em um arquivo DOCX bem formatado.
+    """
+    temp_html_path = None
+    try:
+        logging.info(f"Gerando DOCX para: {output_path}")
+        
+        # Criar diretório de saída se não existir
+        output_dir = Path(output_path).parent
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Criar arquivo HTML temporário
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".html", delete=False) as f:
+            temp_html_path = f.name
+            
+            # Melhorar o HTML com metadados e CSS inline
+            enhanced_html = f"""
+            <!DOCTYPE html>
+            <html lang="pt-BR">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Deep Scraping Results</title>
+                <style>
+                    body {{
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        line-height: 1.6;
+                        color: #333;
+                        max-width: 800px;
+                        margin: 0 auto;
+                        padding: 20px;
+                    }}
+                    h1, h2, h3, h4, h5, h6 {{
+                        color: #2c3e50;
+                        margin-top: 1.5em;
+                        margin-bottom: 0.5em;
+                    }}
+                    h1 {{ border-bottom: 2px solid #3498db; padding-bottom: 0.3em; }}
+                    h2 {{ border-bottom: 1px solid #e1e4e8; padding-bottom: 0.3em; }}
+                    a {{ color: #0066cc; }}
+                    blockquote {{
+                        border-left: 4px solid #dfe2e5;
+                        padding-left: 1em;
+                        color: #6a737d;
+                        margin: 1em 0;
+                    }}
+                    code {{
+                        background-color: #f6f8fa;
+                        padding: 0.2em 0.4em;
+                        border-radius: 3px;
+                    }}
+                    pre {{
+                        background-color: #f6f8fa;
+                        padding: 1em;
+                        border-radius: 5px;
+                    }}
+                </style>
+            </head>
+            <body>
+            {scraped_html_content}
+            </body>
+            </html>
+            """
+            f.write(enhanced_html)
+
+        # Comando pandoc com opções aprimoradas
+        command = [
+            "pandoc", 
+            temp_html_path, 
+            "-o", output_path, 
+            "--from", "html", 
+            "--to", "docx",
+            "--standalone",
+            "--reference-doc=" if os.path.exists("reference.docx") else "",  # Template opcional
+        ]
+        
+        # Remover argumento vazio se não houver template
+        command = [arg for arg in command if arg]
+        
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        logging.info(f"✅ DOCX gerado com sucesso em: {output_path}")
+        return True
+        
+    except FileNotFoundError:
+        logging.error("❌ ERRO: O comando 'pandoc' não foi encontrado. Verifique se ele está instalado e no PATH do sistema.")
+        return False
+    except subprocess.CalledProcessError as e:
+        logging.error(f"❌ Erro durante a conversão com pandoc: {e}")
+        logging.error(f"Saída do erro: {e.stderr}")
+        return False
+    except Exception as e:
+        logging.error(f"❌ Erro inesperado ao gerar DOCX: {e}")
+        return False
+    finally:
+        # Limpar arquivo temporário
+        if temp_html_path and os.path.exists(temp_html_path):
+            try:
+                os.remove(temp_html_path)
+            except Exception as e:
+                logging.warning(f"Não foi possível remover arquivo temporário {temp_html_path}: {e}")
+
+
+def generate_consolidated_html(result_data: dict) -> str:
+    """Gerar HTML consolidado bem formatado para conversão em PDF/DOCX"""
+    domain = result_data.get('domain', 'unknown')
+    base_url = result_data.get('base_url', '')
+    date = result_data.get('date', '')
+    total_pages = result_data.get('total_pages', 0)
+    levels = result_data.get('levels', [])
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Deep Scraping Results: {domain}</title>
+    </head>
+    <body>
+        <header>
+            <h1>Deep Scraping Results: {domain}</h1>
+            <div class="meta-info">
+                <p><strong>Base URL:</strong> <a href="{base_url}">{base_url}</a></p>
+                <p><strong>Date:</strong> {date}</p>
+                <p><strong>Total Pages:</strong> {total_pages}</p>
+                <p><strong>Levels:</strong> {len(levels)}</p>
+            </div>
+            <hr>
+        </header>
+        
+        <main>
+    """
+    
+    # Adicionar índice
+    html_content += "<h2>Table of Contents</h2>\n<ol>\n"
+    page_counter = 1
+    
+    for level in levels:
+        for page in level.get('pages', []):
+            title = page.get('title', f'Page {page_counter}')
+            html_content += f'<li><a href="#page-{page_counter}">{title}</a></li>\n'
+            page_counter += 1
+    
+    html_content += "</ol>\n<hr>\n"
+    
+    # Adicionar conteúdo por níveis
+    page_counter = 1
+    for level in levels:
+        level_num = level.get('level', 0)
+        pages = level.get('pages', [])
+        
+        if pages:
+            html_content += f"<h2>Level {level_num}</h2>\n"
+            html_content += f"<p><em>{len(pages)} pages at this level</em></p>\n"
+            
+            for page in pages:
+                title = page.get('title', 'Untitled Page')
+                url = page.get('url', '')
+                content = page.get('content', '')
+                byline = page.get('byline', '')
+                excerpt = page.get('excerpt', '')
+                
+                html_content += f'<article id="page-{page_counter}">\n'
+                html_content += f"<h3>{page_counter}. {title}</h3>\n"
+                html_content += f'<p class="page-meta"><strong>URL:</strong> <a href="{url}">{url}</a></p>\n'
+                
+                if byline:
+                    html_content += f'<p class="byline"><strong>Author:</strong> {byline}</p>\n'
+                
+                if excerpt:
+                    html_content += f'<p class="excerpt"><em>{excerpt}</em></p>\n'
+                
+                html_content += '<div class="page-content">\n'
+                html_content += content or ''
+                html_content += '\n</div>\n'
+                html_content += '</article>\n<hr>\n'
+                
+                page_counter += 1
+    
+    html_content += """
+        </main>
+    </body>
+    </html>
+    """
+    
+    return html_content
 
 
 class DeepScrapeQueryParams:
@@ -427,6 +727,122 @@ def generate_consolidated_markdown(result_data: dict) -> str:
             markdown_content.append("\n---\n")
     
     return '\n'.join(markdown_content)
+
+
+@router.get('/pdf', summary='Generate high-quality PDF from deep scrape results using WeasyPrint')
+async def deep_scrape_pdf(
+    request: Request,
+    url: Annotated[URLParam, Depends()],
+    params: Annotated[CommonQueryParams, Depends()],
+    browser_params: Annotated[BrowserQueryParams, Depends()],
+    proxy_params: Annotated[ProxyQueryParams, Depends()],
+    readability_params: Annotated[ReadabilityQueryParams, Depends()],
+    deep_scrape_params: Annotated[DeepScrapeQueryParams, Depends()],
+    _: AuthRequired,
+) -> dict:
+    """
+    Generate a high-quality PDF document from deep scrape results using WeasyPrint.
+    This produces much better results than client-side PDF generation.
+    """
+    if not WEASYPRINT_AVAILABLE:
+        return {"error": "WeasyPrint não está disponível neste servidor.", "success": False}
+    
+    # Get existing deep scrape results
+    host_url, full_path, query_dict = util.split_url(request.url)
+    r_id = cache.make_key(full_path.replace('/pdf', ''))  # Remove /pdf suffix
+    
+    result_data = cache.load_result(key=r_id)
+    if not result_data:
+        return {"error": "Resultados não encontrados. Execute o deep scraping primeiro.", "success": False}
+    
+    try:
+        # Generate consolidated HTML
+        html_content = generate_consolidated_html(result_data)
+        
+        # Generate filename
+        domain = result_data.get('domain', 'unknown')
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"deep_scrape_{domain}_{timestamp}.pdf"
+        
+        # Ensure output directory exists
+        output_dir = Path("static/output")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / filename
+        
+        # Generate PDF
+        base_url = result_data.get('base_url', url.url)
+        success = generate_pdf_from_scraped_html(html_content, base_url, str(output_path))
+        
+        if success:
+            download_url = f"{host_url}/static/output/{filename}"
+            return {
+                "success": True,
+                "download_url": download_url,
+                "filename": filename,
+                "message": "PDF gerado com sucesso usando WeasyPrint"
+            }
+        else:
+            return {"error": "Falha na geração do PDF", "success": False}
+            
+    except Exception as e:
+        logging.error(f"Erro ao gerar PDF: {e}")
+        return {"error": f"Erro interno: {str(e)}", "success": False}
+
+
+@router.get('/docx', summary='Generate high-quality DOCX from deep scrape results using Pandoc')
+async def deep_scrape_docx(
+    request: Request,
+    url: Annotated[URLParam, Depends()],
+    params: Annotated[CommonQueryParams, Depends()],
+    browser_params: Annotated[BrowserQueryParams, Depends()],
+    proxy_params: Annotated[ProxyQueryParams, Depends()],
+    readability_params: Annotated[ReadabilityQueryParams, Depends()],
+    deep_scrape_params: Annotated[DeepScrapeQueryParams, Depends()],
+    _: AuthRequired,
+) -> dict:
+    """
+    Generate a high-quality DOCX document from deep scrape results using Pandoc.
+    This produces much better results than client-side DOCX generation.
+    """
+    # Get existing deep scrape results
+    host_url, full_path, query_dict = util.split_url(request.url)
+    r_id = cache.make_key(full_path.replace('/docx', ''))  # Remove /docx suffix
+    
+    result_data = cache.load_result(key=r_id)
+    if not result_data:
+        return {"error": "Resultados não encontrados. Execute o deep scraping primeiro.", "success": False}
+    
+    try:
+        # Generate consolidated HTML
+        html_content = generate_consolidated_html(result_data)
+        
+        # Generate filename
+        domain = result_data.get('domain', 'unknown')
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"deep_scrape_{domain}_{timestamp}.docx"
+        
+        # Ensure output directory exists
+        output_dir = Path("static/output")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / filename
+        
+        # Generate DOCX
+        success = generate_docx_from_scraped_html(html_content, str(output_path))
+        
+        if success:
+            download_url = f"{host_url}/static/output/{filename}"
+            return {
+                "success": True,
+                "download_url": download_url,
+                "filename": filename,
+                "message": "DOCX gerado com sucesso usando Pandoc"
+            }
+        else:
+            return {"error": "Falha na geração do DOCX", "success": False}
+            
+    except Exception as e:
+        logging.error(f"Erro ao gerar DOCX: {e}")
+        return {"error": f"Erro interno: {str(e)}", "success": False}
 
 
 @router.get('/markdown', summary='Get deep scrape results as consolidated Markdown')

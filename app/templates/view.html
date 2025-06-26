@@ -253,20 +253,168 @@
         title.textContent = 'Download HTML Formats';
         optionsContainer.innerHTML = `
           <button class="download-option" onclick="downloadAllPages('pdf-html')">
-            <strong>PDF from HTML</strong>
-            <small>PDF with formatted HTML layout from the page</small>
+            <strong>PDF from HTML (Client)</strong>
+            <small>PDF with formatted HTML layout from the page (JavaScript)</small>
           </button>
           <button class="download-option" onclick="downloadAllPages('docx-html')">
-            <strong>Word from HTML</strong>
-            <small>DOCX with formatted HTML layout from the page</small>
+            <strong>Word from HTML (Client)</strong>
+            <small>DOCX with formatted HTML layout from the page (RTF)</small>
+          </button>
+          <button class="download-option" onclick="downloadPythonGenerated('pdf')">
+            <strong>PDF High Quality (Server)</strong>
+            <small>Professional PDF generated with WeasyPrint (Python)</small>
+          </button>
+          <button class="download-option" onclick="downloadPythonGenerated('docx')">
+            <strong>Word High Quality (Server)</strong>
+            <small>Professional DOCX generated with Pandoc (Python)</small>
           </button>
         `;
       }
       
       modal.style.display = 'flex';
-    }
-    
-    // Hide download modal
+          }
+      
+      // Download using Python backend (high quality)
+      async function downloadPythonGenerated(format) {
+        try {
+          hideDownloadModal();
+          
+          // Extract current URL parameters from window location
+          const urlParams = new URLSearchParams(window.location.search);
+          
+          // Build API URL with all current parameters
+          const apiUrl = `/api/deep-scrape/${format}?${urlParams.toString()}`;
+          
+          // Show loading indicator
+          showLoadingMessage(`Gerando ${format.toUpperCase()} de alta qualidade no servidor...`);
+          
+          const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+              'Authorization': 'Bearer test',
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          const result = await response.json();
+          
+          if (result.success && result.download_url) {
+            hideLoadingMessage();
+            
+            // Create download link
+            const downloadLink = document.createElement('a');
+            downloadLink.href = result.download_url;
+            downloadLink.download = result.filename;
+            downloadLink.style.display = 'none';
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            
+            showSuccessMessage(`${format.toUpperCase()} gerado com sucesso! Download iniciado.`);
+          } else {
+            hideLoadingMessage();
+            showErrorMessage(result.error || `Erro ao gerar ${format.toUpperCase()}`);
+          }
+          
+        } catch (error) {
+          hideLoadingMessage();
+          console.error(`Erro ao gerar ${format}:`, error);
+          showErrorMessage(`Erro de conexão ao gerar ${format.toUpperCase()}`);
+        }
+      }
+      
+      // Helper functions for UI feedback
+      function showLoadingMessage(message) {
+        // Remove any existing messages
+        hideAllMessages();
+        
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'loading-message';
+        loadingDiv.style.cssText = `
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          background: #3498db;
+          color: white;
+          padding: 15px 20px;
+          border-radius: 5px;
+          z-index: 1000;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        `;
+        loadingDiv.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 20px; height: 20px; border: 2px solid #fff; border-top: 2px solid transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+            ${message}
+          </div>
+        `;
+        
+        // Add spinning animation
+        const style = document.createElement('style');
+        style.textContent = '@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
+        document.head.appendChild(style);
+        
+        document.body.appendChild(loadingDiv);
+      }
+      
+      function showSuccessMessage(message) {
+        hideAllMessages();
+        
+        const successDiv = document.createElement('div');
+        successDiv.id = 'success-message';
+        successDiv.style.cssText = `
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          background: #27ae60;
+          color: white;
+          padding: 15px 20px;
+          border-radius: 5px;
+          z-index: 1000;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        `;
+        successDiv.textContent = message;
+        document.body.appendChild(successDiv);
+        
+        // Auto remove after 5 seconds
+        setTimeout(() => hideAllMessages(), 5000);
+      }
+      
+      function showErrorMessage(message) {
+        hideAllMessages();
+        
+        const errorDiv = document.createElement('div');
+        errorDiv.id = 'error-message';
+        errorDiv.style.cssText = `
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          background: #e74c3c;
+          color: white;
+          padding: 15px 20px;
+          border-radius: 5px;
+          z-index: 1000;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        `;
+        errorDiv.textContent = message;
+        document.body.appendChild(errorDiv);
+        
+        // Auto remove after 10 seconds
+        setTimeout(() => hideAllMessages(), 10000);
+      }
+      
+      function hideLoadingMessage() {
+        const loading = document.getElementById('loading-message');
+        if (loading) loading.remove();
+      }
+      
+      function hideAllMessages() {
+        ['loading-message', 'success-message', 'error-message'].forEach(id => {
+          const element = document.getElementById(id);
+          if (element) element.remove();
+        });
+      }
+      
+      // Hide download modal
     function hideDownloadModal() {
       document.getElementById('downloadModal').style.display = 'none';
     }
