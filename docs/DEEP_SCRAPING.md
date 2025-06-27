@@ -11,6 +11,18 @@ A funcionalidade **Deep Scraping** do Scrapper permite extrair conteúdo de form
 
 ## 🚀 Como Usar
 
+### Inicialização Completa
+```bash
+# Iniciar todos os serviços (Scrapper + Redis + Worker)
+docker-compose up --build -d
+
+# Verificar status
+docker-compose ps
+
+# Ver logs
+docker-compose logs -f
+```
+
 ### Interface Web
 Acesse `http://localhost:3000/deep-scrape` e configure:
 
@@ -107,6 +119,39 @@ Use o parâmetro `exclude-patterns` para adicionar seus próprios filtros:
 exclude-patterns=/admin,/login,/private,/download
 ```
 
+## 🏗️ Arquitetura de Serviços
+
+O Deep Scraping utiliza uma arquitetura distribuída com três serviços principais:
+
+### 1. **Scrapper** (Web API)
+- Interface web e API REST
+- Recebe requisições de deep scraping
+- Enfileira jobs no Redis
+- Serve resultados processados
+
+### 2. **Redis** (Cache & Queue)
+- Cache inteligente de resultados
+- Queue de jobs para processamento assíncrono
+- Pub/Sub para progresso em tempo real
+- Distributed locking para evitar duplicação
+
+### 3. **Worker** (Processamento)
+- Processa jobs de deep scraping de forma assíncrona
+- Executa scraping recursivo com Playwright
+- Publica progresso via Redis Pub/Sub
+- Implementa distributed locking
+
+### Fluxo de Processamento
+```
+[Cliente] → [API] → [Redis Queue] → [Worker] → [Cache] → [Cliente]
+```
+
+1. Cliente envia requisição para API
+2. API verifica cache e enfileira job se necessário
+3. Worker processa job assincronamente
+4. Resultado é salvo no cache
+5. Cliente recebe resultado via WebSocket ou polling
+
 ## ⚡ Otimizações de Performance
 
 ### Rate Limiting
@@ -118,6 +163,31 @@ exclude-patterns=/admin,/login,/private,/download
 - **Evita URLs duplicadas** automaticamente
 - **Cache de resultados** para requisições repetidas
 - **Reutilização** de contextos de browser
+
+#### Cache Inteligente por Similaridade de URLs
+O sistema utiliza uma estratégia avançada de cache para evitar processamento e armazenamento redundante de páginas que, apesar de pequenas diferenças na URL, representam o mesmo conteúdo. 
+
+**Como funciona:**
+- Antes de consultar ou gravar no cache, a URL é normalizada:
+  - Parâmetros irrelevantes (ex: `utm_*`, `ref`, `session`, `fbclid`, etc) são removidos
+  - Fragmentos/anchors (`#...`) são ignorados
+  - Trailing slashes são normalizados
+  - O host é convertido para minúsculas
+- O cache Redis e o cache de arquivos usam a URL normalizada como chave
+- Isso garante que URLs como:
+  - `https://site.com/page?utm_source=google`
+  - `https://site.com/page/`
+  - `https://SITE.com/page#section`
+  - `https://site.com/page?ref=twitter`
+  sejam tratadas como a mesma entrada de cache
+
+**Benefícios:**
+- Reduz drasticamente o processamento duplicado
+- Economiza recursos de rede, CPU e armazenamento
+- Melhora a experiência do usuário, entregando resultados mais rápidos
+
+**Observação:**
+Se necessário, a lista de parâmetros ignorados pode ser customizada no código (`util.py`).
 
 ### Processamento Paralelo
 - **Semáforos** para controlar concorrência

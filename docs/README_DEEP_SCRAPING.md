@@ -20,15 +20,20 @@ Nosso sistema vai muito além do scraping tradicional:
 
 ### 1. Setup Rápido
 ```bash
-# Windows
-./setup.bat
-
-# Linux/Mac
-chmod +x setup.sh
-./setup.sh
+# Iniciar todos os serviços (Scrapper + Redis + Worker)
+docker-compose up --build -d
 ```
 
-### 2. Iniciar o Container
+### 2. Verificar Status dos Serviços
+```bash
+# Verificar se todos os containers estão rodando
+docker-compose ps
+
+# Ver logs em tempo real
+docker-compose logs -f
+```
+
+### 3. Iniciar o Container (Alternativa Manual)
 ```bash
 docker-compose up --build
 ```
@@ -428,7 +433,7 @@ ls -la app/static/output/
 
 ### Versão 2.1 (Próxima - Redis Integration) 🚀
 **Migração Inteligente para Redis Cache**
-- [ ] **Cache Redis Multinível** substituindo sistema de arquivos
+- [x] **Cache Redis Multinível** substituindo sistema de arquivos
   ```python
   # Estruturas Redis planejadas
   scrape_results:{id}     # Hash com metadados do scraping
@@ -436,20 +441,20 @@ ls -la app/static/output/
   scrape_progress:{id}    # Hash com progresso em tempo real
   scrape_queue           # List para processamento em background
   ```
-- [ ] **Sistema de TTL Automático** para limpeza inteligente
-- [ ] **Processamento em Background** com Redis Queues
-- [ ] **API de Progresso em Tempo Real** via Redis Pub/Sub
-- [ ] **Cache de Screenshots** otimizado
-- [ ] **Rate Limiting Distribuído** por domínio
-- [ ] **Métricas Live** de performance
+- [x] **Sistema de TTL Automático** para limpeza inteligente
+- [x] **Processamento em Background** com Redis Queues
+- [x] **API de Progresso em Tempo Real** via Redis Pub/Sub
+- [x] **Cache de Screenshots** otimizado
+- [x] **Rate Limiting Distribuído** por domínio
+- [x] **Métricas Live** de performance
 
 ### Versão 2.2 (Redis Avançado) ⚡
 **Funcionalidades Avançadas com Redis**
-- [ ] **WebSocket API** para progresso em tempo real
-- [ ] **Sessões de Usuário** para múltiplos scrapings simultâneos
-- [ ] **Cache Inteligente** por similaridade de URLs
-- [ ] **Queue System** para processamento assíncrono
-- [ ] **Distributed Locking** para concorrência
+- [x] **WebSocket API** para progresso em tempo real
+- [x] **Sessões de Usuário** para múltiplos scrapings simultâneos
+- [x] **Cache Inteligente** por similaridade de URLs
+- [x] **Queue System** para processamento assíncrono
+- [x] **Distributed Locking** para concorrência
 - [ ] **Analytics em Tempo Real** de uso
 - [ ] **Auto-scaling** baseado em carga
 
@@ -793,3 +798,30 @@ python examples/ecommerce_analyzer.py
 4. **Explore** as possibilidades para seu projeto
 
 **Transforme qualquer site em documentação profissional com apenas alguns cliques!** 📚✨ 
+
+## 🔒 Concorrência Segura com Distributed Locking (Lock Distribuído via Redis)
+
+Para garantir que múltiplos workers/processos não processem a mesma URL simultaneamente, o sistema implementa um mecanismo de **Distributed Locking** usando Redis:
+
+- Antes de processar qualquer URL, o worker tenta adquirir um lock exclusivo para a URL normalizada.
+- Se o lock já estiver em uso (outro worker processando a mesma URL), o job é pulado e marcado como "skipped".
+- O lock é liberado automaticamente ao final do processamento ou expira após um tempo configurável (TTL padrão: 10 minutos).
+- A chave do lock é baseada na URL normalizada, garantindo exclusividade lógica por recurso.
+
+**Benefícios:**
+- Evita processamento duplicado e desperdício de recursos
+- Garante integridade dos resultados mesmo em ambientes distribuídos
+- Simples, eficiente e fácil de monitorar
+
+**Limitações:**
+- Se o processamento demorar mais que o TTL do lock, pode haver concorrência (ajuste o TTL conforme o workload)
+- Jobs pulados por lock podem ser re-enfileirados manualmente, se desejado
+
+**Exemplo de fluxo:**
+1. Worker recebe job para `https://site.com/page?utm_source=google`
+2. Normaliza a URL (`https://site.com/page`)
+3. Tenta adquirir o lock `lock:https://site.com/page`
+4. Se conseguir, processa e libera o lock ao final
+5. Se não conseguir, marca o job como "skipped" e parte para o próximo
+
+Esse mecanismo garante concorrência segura e escalabilidade para múltiplos workers/processos. 

@@ -17,3 +17,4 @@ uvicorn[standard]~=0.34.0
 validators~=0.34.0
 weasyprint~=63.1          # High-quality PDF generation
 redis~=5.0.1              # Redis cache and queues
+openai~=1.0.0             # OpenAI API for manual/translation pipeline

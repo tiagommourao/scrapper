@@ -9,7 +9,7 @@ from playwright.async_api import Error as PlaywrightError
 
 from server.state import lifespan
 from internal.logger import setup_logger
-from router import site, article, links, any_page, misc, results, deep_scrape
+from router import site, article, links, any_page, misc, results, deep_scrape, ws, manual
 
 import settings
 
@@ -38,6 +38,8 @@ app.include_router(deep_scrape.router)
 app.include_router(any_page.router)
 app.include_router(misc.router)
 app.include_router(results.router)
+app.include_router(ws.router)
+app.include_router(manual.router)
 
 
 @app.exception_handler(PlaywrightError)

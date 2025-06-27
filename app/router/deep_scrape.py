@@ -26,7 +26,7 @@ from fastapi.requests import Request
 from pydantic import BaseModel
 from playwright.async_api import Browser
 
-from internal import util, cache, redis_cache
+from internal import util, cache, redis_cache, redis_queue
 from internal.browser import (
     new_context,
     page_processing,
@@ -478,9 +478,13 @@ class DeepScrapeQueryParams:
         self.same_domain_only = same_domain_only
         self.delay_between_requests = delay_between_requests
         self.exclude_patterns = []
-        
         if exclude_patterns:
-            self.exclude_patterns = [pattern.strip() for pattern in exclude_patterns.split(',') if pattern.strip()]
+            if isinstance(exclude_patterns, list):
+                self.exclude_patterns = [pattern.strip() for pattern in exclude_patterns if pattern.strip()]
+            elif isinstance(exclude_patterns, str):
+                self.exclude_patterns = [pattern.strip() for pattern in exclude_patterns.split(',') if pattern.strip()]
+            else:
+                self.exclude_patterns = []
 
 
 class DeepScrapeResult(BaseModel):
@@ -504,7 +508,8 @@ async def deep_scrape(
     proxy_params: Annotated[ProxyQueryParams, Depends()],
     readability_params: Annotated[ReadabilityQueryParams, Depends()],
     deep_scrape_params: Annotated[DeepScrapeQueryParams, Depends()],
-    _: AuthRequired,
+    _: AuthRequired = None,
+    progress_callback=None,
 ) -> dict:
     """
     Deep scrape a website recursively with configurable depth.<br><br>
@@ -636,6 +641,19 @@ async def deep_scrape(
                             
                             level_data['pages'].append(page_result)
                             all_results.append(page_result)
+
+                        # Progresso por página
+                        if progress_callback:
+                            progress = {
+                                'current_level': current_level,
+                                'current_page': i + 1,
+                                'pages_in_level': len(level_urls),
+                                'total_levels': deep_scrape_params.depth,
+                                'total_pages': len(all_results),
+                                'last_url': current_url,
+                                'percent': round(100 * (current_level + (i + 1) / len(level_urls)) / deep_scrape_params.depth, 2) if len(level_urls) > 0 else 0,
+                            }
+                            await progress_callback(progress)
                         
                         # Respectful delay between requests
                         if deep_scrape_params.delay_between_requests > 0:
@@ -648,6 +666,18 @@ async def deep_scrape(
             if level_data['pages']:
                 level_results.append(level_data)
             
+            # Progresso por nível
+            if progress_callback:
+                progress = {
+                    'current_level': current_level + 1,
+                    'current_page': 0,
+                    'pages_in_level': 0,
+                    'total_levels': deep_scrape_params.depth,
+                    'total_pages': len(all_results),
+                    'last_url': None,
+                    'percent': round(100 * (current_level + 1) / deep_scrape_params.depth, 2),
+                }
+                await progress_callback(progress)
             current_level += 1
 
     # Prepare final result
@@ -955,4 +985,127 @@ def _is_valid_url(
         return True
         
     except Exception:
-        return False 
+        return False
+
+
+class AsyncDeepScrapeRequest(BaseModel):
+    url: str
+    depth: int = 3
+    max_urls_per_level: int = 10
+    same_domain_only: bool = True
+    delay_between_requests: float = 1.0
+    exclude_patterns: List[str] = []
+    # Additional optional parameters
+    cache: bool = True
+    screenshot: bool = False
+    proxy: str = None
+    user_agent: str = None
+    timeout: int = 30
+    wait_for: str = None
+    wait_for_timeout: int = 10
+    block_resources: List[str] = []
+    extra_headers: dict = {}
+    cookies: dict = {}
+    viewport_width: int = 1280
+    viewport_height: int = 720
+    readability: bool = True
+    include_raw_html: bool = False
+    include_screenshot: bool = False
+
+
+@router.post('/async', summary='Enfileira deep scraping assíncrono via Redis Queue')
+async def deep_scrape_async(body: AsyncDeepScrapeRequest) -> dict:
+    """
+    Enfileira um job de deep scraping para processamento assíncrono.
+    Retorna um job_id para consulta posterior do status/resultados.
+    Se já houver resultado no cache, retorna imediatamente.
+    """
+    # Gerar chave normalizada para a URL
+    r_id = redis_cache.make_key(body.url)
+    logging.info(f"[deep_scrape_async] Chave de cache gerada: {r_id}")
+    cached = redis_cache.load_result(key=r_id)
+    if cached:
+        logging.info(f"[deep_scrape_async] Cache HIT para chave: {r_id}")
+        return {
+            'success': True,
+            'from_cache': True,
+            'result_id': r_id,
+            'resultUri': f'/result/{r_id}',
+            'message': 'Resultado servido do cache.'
+        }
+    logging.info(f"[deep_scrape_async] Cache MISS para chave: {r_id}. Enfileirando novo job.")
+    
+    # Converter request body para o formato esperado pelo worker
+    browser_params = {}
+    if body.user_agent:
+        browser_params['user_agent'] = body.user_agent
+    if body.timeout != 30:
+        browser_params['timeout'] = body.timeout * 1000  # Converter para milliseconds
+    if body.viewport_width != 1280:
+        browser_params['viewport_width'] = body.viewport_width
+    if body.viewport_height != 720:
+        browser_params['viewport_height'] = body.viewport_height
+    
+    proxy_params = {}
+    if body.proxy:
+        proxy_params['proxy_server'] = body.proxy
+    
+    job_data = {
+        'url': body.url,
+        'params': {
+            'cache': body.cache,
+            'screenshot': body.screenshot,
+        },
+        'browser_params': browser_params,
+        'proxy_params': proxy_params,
+        'readability_params': {},
+        'deep_scrape_params': {
+            'depth': body.depth,
+            'max_urls_per_level': body.max_urls_per_level,
+            'same_domain_only': body.same_domain_only,
+            'delay_between_requests': body.delay_between_requests,
+            'exclude_patterns': body.exclude_patterns,
+        },
+        'request_headers': {},
+    }
+    job_id = redis_queue.enqueue_job(job_data)
+    logging.info(f"[deep_scrape_async] Job enfileirado com job_id: {job_id} para chave: {r_id}")
+    host_url = "http://localhost:3000"  # Temporary hardcode for testing
+    return {
+        'success': True,
+        'job_id': job_id,
+        'status_url': f'{host_url}/api/deep-scrape/status/{job_id}',
+        'message': 'Job enfileirado com sucesso. Consulte o status pelo job_id.'
+    }
+
+
+@router.get('/status/{job_id}', summary='Consulta status de job assíncrono de deep scraping')
+async def deep_scrape_status(job_id: str, _: AuthRequired) -> dict:
+    """
+    Consulta o status de um job de deep scraping assíncrono.
+    Retorna status, erro, timestamps e result_id (se pronto).
+    """
+    job = redis_queue.get_job_status(job_id)
+    if not job:
+        return {'success': False, 'error': f'Job {job_id} não encontrado.'}
+    return {
+        'success': True,
+        'job_id': job_id,
+        'status': job['status'],
+        'created_at': job.get('created_at'),
+        'updated_at': job.get('updated_at'),
+        'error': job.get('error'),
+        'result_id': job.get('result_id'),
+    }
+
+
+@router.get('/progress/{job_id}', summary='Consulta progresso granular de job assíncrono')
+async def deep_scrape_progress(job_id: str, _: AuthRequired) -> dict:
+    """
+    Consulta o progresso detalhado de um job de deep scraping assíncrono.
+    Retorna progresso granular (nível, página, percent, etc).
+    """
+    progress = redis_queue.get_job_progress(job_id)
+    if progress is None:
+        return {'success': False, 'error': f'Progresso não encontrado para job {job_id}.'}
+    return {'success': True, 'job_id': job_id, 'progress': progress} 

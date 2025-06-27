@@ -45,3 +45,10 @@ def json_location(filename: str) -> Path:
 
 def screenshot_location(filename: str) -> Path:
     return USER_DATA_DIR / '_res' / filename[:2] / (filename + '.' + SCREENSHOT_TYPE.value)
+
+
+def store_result(key: str, data: dict, screenshot: bytes | None = None) -> None:
+    """
+    Compatibilidade: grava resultado no cache de arquivos.
+    """
+    dump_result(data, key, screenshot)

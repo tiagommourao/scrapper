@@ -22,6 +22,8 @@ services:
       - DEBUG=false
       - REDIS_URL=redis://redis:6379/0
       - REDIS_ENABLED=true
+      - OPENAI_API_KEY=REMOVIDO"
+      - OPENAI_MODEL=gpt-4.1-mini
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/misc/health"]
@@ -44,6 +46,33 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scrapper-worker
+    depends_on:
+      - redis
+      - scrapper
+    environment:
+      - LOG_LEVEL=info
+      - BROWSER_TYPE=firefox
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_ENABLED=true
+      - OPENAI_API_KEY=REMOVIDO
+      - OPENAI_MODEL=gpt-4.1-mini
+    command: ["python", "worker_deep_scrape.py"]
+    working_dir: /home/pwuser/app
+    restart: unless-stopped
+    volumes:
+      - ./app:/home/pwuser/app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r=redis.from_url('redis://redis:6379/0'); r.ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 volumes:
   redis_data:

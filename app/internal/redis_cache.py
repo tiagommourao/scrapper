@@ -18,6 +18,7 @@ except ImportError:
     REDIS_AVAILABLE = False
 
 from . import cache as file_cache
+from .util import normalize_url
 
 
 logger = logging.getLogger(__name__)
@@ -50,17 +51,17 @@ class RedisCache:
     
     def _init_redis(self):
         """Initialize Redis connection with error handling"""
+        redis_enabled_env = os.getenv('REDIS_ENABLED', 'false').lower()
+        logging.info(f"[redis_cache] REDIS_ENABLED={redis_enabled_env}")
         if not REDIS_AVAILABLE:
-            logger.warning("Redis library not available")
+            logging.warning("Redis library not available")
             return
-            
         redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-        redis_enabled = os.getenv('REDIS_ENABLED', 'false').lower() == 'true'
-        
+        redis_enabled = redis_enabled_env == 'true'
+        logging.info(f"[redis_cache] REDIS_ENABLED parsed: {redis_enabled}, REDIS_URL={redis_url}")
         if not redis_enabled:
-            logger.info("Redis disabled via REDIS_ENABLED=false")
+            logging.info("Redis disabled via REDIS_ENABLED=false")
             return
-            
         try:
             self.redis_client = redis.from_url(
                 redis_url,
@@ -69,20 +70,19 @@ class RedisCache:
                 socket_timeout=5,
                 retry_on_timeout=True
             )
-            
             # Test connection
             self.redis_client.ping()
             self.redis_enabled = True
-            logger.info(f"Redis connected successfully: {redis_url}")
-            
+            logging.info(f"Redis connected successfully: {redis_url}")
         except Exception as e:
-            logger.error(f"Failed to connect to Redis: {e}")
+            logging.error(f"Failed to connect to Redis: {e}")
             self.redis_client = None
             self.redis_enabled = False
     
     def make_key(self, path: str) -> str:
-        """Generate cache key compatible with existing system"""
-        return file_cache.make_key(path)
+        """Generate cache key using normalized URL"""
+        normalized = normalize_url(path)
+        return file_cache.make_key(normalized)
     
     def store_result(self, key: str, data: Dict[str, Any], ttl: int = 3600) -> bool:
         """

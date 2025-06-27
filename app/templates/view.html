@@ -157,6 +157,11 @@
     <div class="extra-info">
       The page was parsed at {{ data.date }}
     </div>
+    <form id="scrape-form" style="margin: 32px auto; max-width: 600px; display: flex; gap: 8px; align-items: center;">
+      <input id="scrape-url" type="text" placeholder="Enter URL to deep scrape" style="flex:1;" required>
+      <button id="scrape-btn" type="submit" class="contrast">Deep Scrape</button>
+    </form>
+    <div id="scrape-result-link" style="display:none; margin: 16px auto; max-width: 600px; text-align: center;"></div>
   </main>
   <footer>
     <div class="container">
@@ -182,6 +187,14 @@
       <div class="modal-actions">
         <button class="secondary" onclick="hideDownloadModal()">Cancel</button>
       </div>
+    </div>
+  </div>
+  
+  <div id="ws-progress-container" style="display:none; position:fixed; top:0; left:0; width:100%; z-index:9999; background:#f8f9fa; border-bottom:1px solid #ddd;">
+    <div style="max-width:900px; margin:0 auto; padding:8px 16px; display:flex; align-items:center;">
+      <progress id="ws-progress-bar" value="0" max="100" style="width:200px; margin-right:16px;"></progress>
+      <span id="ws-progress-status" style="font-size:1rem; color:#333;">Aguardando progresso...</span>
+      <span id="ws-progress-error" style="color:#c00; margin-left:16px; display:none;"></span>
     </div>
   </div>
   
@@ -767,7 +780,110 @@
           hideDownloadModal();
         }
       });
+
+      // Interceptar submit do formulário de scraping
+      const scrapeForm = document.getElementById('scrape-form');
+      if (scrapeForm) {
+        scrapeForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const url = document.getElementById('scrape-url').value.trim();
+          if (!url) return;
+          document.getElementById('scrape-result-link').style.display = 'none';
+          await startAsyncDeepScrape(url);
+        });
+      }
     });
+
+    // --- WebSocket Deep Scrape Progress ---
+    function startDeepScrapeWebSocket(jobId, onDone) {
+      const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/deep-scrape/${jobId}`;
+      const progressContainer = document.getElementById('ws-progress-container');
+      const progressBar = document.getElementById('ws-progress-bar');
+      const progressStatus = document.getElementById('ws-progress-status');
+      const progressError = document.getElementById('ws-progress-error');
+
+      progressContainer.style.display = 'block';
+      progressBar.value = 0;
+      progressStatus.textContent = 'Iniciando...';
+      progressError.style.display = 'none';
+
+      let ws;
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch (e) {
+        progressError.textContent = 'Erro ao conectar ao WebSocket.';
+        progressError.style.display = 'inline';
+        return;
+      }
+
+      ws.onopen = () => {
+        progressStatus.textContent = 'Conectado. Processando...';
+      };
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.error) {
+            progressError.textContent = 'Erro: ' + data.error;
+            progressError.style.display = 'inline';
+            progressStatus.textContent = 'Erro no processamento.';
+            ws.close();
+            return;
+          }
+          const percent = data.percent || 0;
+          progressBar.value = percent;
+          progressStatus.textContent = `Progresso: ${percent}% | Nível: ${data.current_level ?? '-'} | Página: ${data.current_page ?? '-'}`;
+          if (percent >= 100) {
+            progressStatus.textContent = 'Finalizado!';
+            setTimeout(() => { progressContainer.style.display = 'none'; }, 2000);
+            ws.close();
+            if (typeof onDone === 'function') onDone();
+          }
+        } catch (e) {
+          progressError.textContent = 'Erro ao processar evento.';
+          progressError.style.display = 'inline';
+        }
+      };
+      ws.onerror = (e) => {
+        progressError.textContent = 'Erro de conexão WebSocket.';
+        progressError.style.display = 'inline';
+        progressStatus.textContent = 'Erro de conexão.';
+      };
+      ws.onclose = () => {
+        if (progressBar.value < 100) {
+          progressStatus.textContent = 'Conexão encerrada antes do fim.';
+          progressError.style.display = 'inline';
+        }
+      };
+    }
+
+    // Função para iniciar deep scraping assíncrono
+    async function startAsyncDeepScrape(url) {
+      try {
+        const payload = { url: url };
+        const response = await fetch('/api/deep-scrape/async', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (result.success && result.job_id) {
+          startDeepScrapeWebSocket(result.job_id, async function onDone() {
+            // Buscar status/result ao finalizar
+            const statusResp = await fetch(`/api/deep-scrape/status/${result.job_id}`);
+            const statusData = await statusResp.json();
+            if (statusData.success && statusData.result_id) {
+              const linkDiv = document.getElementById('scrape-result-link');
+              linkDiv.innerHTML = `<a href="/result/${statusData.result_id}" class="contrast" target="_blank">Ver Resultado do Deep Scrape</a>`;
+              linkDiv.style.display = 'block';
+            }
+          });
+        } else {
+          showErrorMessage(result.error || 'Erro ao enfileirar scraping.');
+        }
+      } catch (e) {
+        showErrorMessage('Erro de conexão ao iniciar scraping.');
+      }
+    }
   </script>
 </body>
 </html>

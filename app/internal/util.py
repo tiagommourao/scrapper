@@ -1,5 +1,5 @@
 from collections.abc import MutableMapping
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse, urlunparse, parse_qsl, urlencode
 
 from bs4 import BeautifulSoup
 from starlette.datastructures import URL
@@ -167,3 +167,45 @@ def split_url(url: URL) -> tuple[str, str, dict]:
     # query params as a dict
     query_dict = parse_qs(qs=url.query, keep_blank_values=True)
     return host_url, full_path, query_dict
+
+
+def normalize_url(url: str, ignore_params=None) -> str:
+    """
+    Normaliza uma URL para fins de cache inteligente:
+    - Remove parâmetros irrelevantes (utm_*, ref, session, etc)
+    - Remove anchors/fragments
+    - Normaliza trailing slashes
+    - Lowercase no host
+    """
+    if ignore_params is None:
+        ignore_params = [
+            'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+            'ref', 'referrer', 'session', 'fbclid', 'gclid', 'yclid', 'mc_cid', 'mc_eid',
+        ]
+    try:
+        parsed = urlparse(url)
+        # Lowercase no host
+        netloc = parsed.netloc.lower()
+        # Remove fragment
+        fragment = ''
+        # Remove parâmetros irrelevantes
+        query = urlencode([
+            (k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+            if k not in ignore_params and not k.startswith('utm_')
+        ])
+        # Normaliza trailing slash
+        path = parsed.path or '/'
+        if path != '/' and path.endswith('/'):
+            path = path.rstrip('/')
+        # Reconstrói a URL
+        normalized = urlunparse((
+            parsed.scheme,
+            netloc,
+            path,
+            '',  # params
+            query,
+            fragment
+        ))
+        return normalized
+    except Exception:
+        return url  # fallback para a original se falhar
