@@ -13,13 +13,8 @@ from pathlib import Path
 
 import tldextract
 
-# Importações condicionais para WeasyPrint (pode não estar disponível em todos os ambientes)
-try:
-    from weasyprint import HTML, CSS
-    WEASYPRINT_AVAILABLE = True
-except ImportError:
-    WEASYPRINT_AVAILABLE = False
-    print("WeasyPrint não disponível. PDFs serão gerados usando método alternativo.")
+# WeasyPrint será importado sob demanda para evitar falhas de carregamento do módulo
+WEASYPRINT_AVAILABLE = None  # Will be determined on first use
 
 from fastapi import APIRouter, Query, Depends
 from fastapi.requests import Request
@@ -143,6 +138,19 @@ def generate_pdf_from_scraped_html(scraped_html_content: str, base_url: str, out
     """
     Gera um PDF de alta fidelidade a partir de um conteúdo HTML usando WeasyPrint.
     """
+    global WEASYPRINT_AVAILABLE
+    
+    # Lazy import WeasyPrint to avoid module loading issues
+    if WEASYPRINT_AVAILABLE is None:
+        try:
+            global HTML, CSS
+            from weasyprint import HTML, CSS
+            WEASYPRINT_AVAILABLE = True
+            logging.info("WeasyPrint importado com sucesso")
+        except ImportError as e:
+            WEASYPRINT_AVAILABLE = False
+            logging.warning(f"WeasyPrint não disponível: {e}")
+    
     if not WEASYPRINT_AVAILABLE:
         logging.error("WeasyPrint não está disponível. Não é possível gerar PDF.")
         return False
@@ -1108,4 +1116,343 @@ async def deep_scrape_progress(job_id: str, _: AuthRequired) -> dict:
     progress = redis_queue.get_job_progress(job_id)
     if progress is None:
         return {'success': False, 'error': f'Progresso não encontrado para job {job_id}.'}
-    return {'success': True, 'job_id': job_id, 'progress': progress} 
+    return {'success': True, 'job_id': job_id, 'progress': progress}
+
+
+# === MANUAL GENERATOR ENDPOINTS ===
+
+class ManualGenerationRequest(BaseModel):
+    """Parâmetros para geração de manual"""
+    result_id: str
+    format_type: str = 'html'  # html, markdown, pdf, docx
+    style: str = 'professional'  # professional, technical, minimal
+    translate: bool = False
+    source_language: str = 'auto'
+    target_language: str = 'pt'
+    translation_provider: str = 'libre'  # openai, google, deepl, libre
+    translation_api_key: str | None = None
+    manual_type: str = 'general'  # general, technical, tutorial
+    include_toc: bool = True
+    include_metadata: bool = True
+    prepare_for_rag: bool = False  # Nova flag para preparar conteúdo para RAG
+
+
+@router.post('/manual', summary='Gera manual estruturado a partir de deep scraping')
+async def generate_manual(
+    request: Request,
+    body: ManualGenerationRequest,
+    _: AuthRequired = None
+) -> dict:
+    """
+    Gera manual profissional estruturado a partir de dados de deep scraping.
+    
+    Este endpoint transforma dados de scraping em um manual organizado com:
+    - Análise semântica do conteúdo
+    - Estruturação hierárquica inteligente
+    - Formatação profissional
+    - Opções de tradução contextual
+    """
+    try:
+        logging.info(f"Iniciando geração de manual para result_id: {body.result_id}")
+        
+        # Recuperar dados do deep scraping
+        # Tentar primeiro no Redis cache (usado pelo worker assíncrono)
+        scraped_data = redis_cache.load_result(body.result_id)
+        if not scraped_data:
+            # Fallback para cache de arquivos (scraping síncrono)
+            scraped_data = cache.load_result(body.result_id)
+            if not scraped_data:
+                return {"error": "Dados de scraping não encontrados", "result_id": body.result_id}
+        
+        # Importar módulos do gerador de manuais
+        try:
+            from manual_generator import ContentAnalyzer, StructureDetector, ManualFormatter, Translator
+            from manual_generator.translator import TranslationConfig, TranslationProvider
+            logging.info("Manual generator modules imported successfully")
+        except ImportError as e:
+            logging.error(f"Failed to import manual generator modules: {e}")
+            return {"error": f"Erro na importação dos módulos: {str(e)}"}
+        
+        # Fase 1: Análise de conteúdo
+        try:
+            content_analyzer = ContentAnalyzer()
+            analyzed_structure = content_analyzer.analyze_scraped_data(scraped_data)
+            logging.info("Content analysis completed successfully")
+        except Exception as e:
+            logging.error(f"Error in content analysis: {e}")
+            return {"error": f"Erro na análise de conteúdo: {str(e)}"}
+        
+        # Fase 2: Análise de estrutura
+        try:
+            structure_detector = StructureDetector()
+            structure_analysis = structure_detector.analyze_structure(analyzed_structure)
+            logging.info(f"Structure analysis completed with quality score: {structure_analysis.quality_score}")
+        except Exception as e:
+            logging.error(f"Error in structure analysis: {e}")
+            return {"error": f"Erro na análise de estrutura: {str(e)}"}
+        
+        # Usar estrutura reorganizada se a qualidade for boa
+        if structure_analysis.quality_score > 60:
+            # Atualizar estrutura com reorganização sugerida
+            analyzed_structure['chapters'] = structure_analysis.suggested_reorganization
+            logging.info(f"Aplicando reorganização sugerida (qualidade: {structure_analysis.quality_score:.1f})")
+        
+        # Fase 3: Tradução (se solicitada)
+        if body.translate and body.target_language != body.source_language:
+            translator = Translator()
+            
+            # Configurar tradução
+            provider_map = {
+                'openai': TranslationProvider.OPENAI,
+                'google': TranslationProvider.GOOGLE,
+                'deepl': TranslationProvider.DEEPL,
+                'libre': TranslationProvider.LIBRE
+            }
+            
+            translation_config = TranslationConfig(
+                provider=provider_map.get(body.translation_provider, TranslationProvider.LIBRE),
+                source_language=body.source_language,
+                target_language=body.target_language,
+                api_key=body.translation_api_key,
+                technical_context=f"Manual técnico sobre {analyzed_structure['metadata'].get('domain', '')}"
+            )
+            
+            analyzed_structure = translator.translate_manual_structure(analyzed_structure, translation_config)
+            logging.info(f"Tradução aplicada: {body.source_language} -> {body.target_language}")
+        
+        # Fase 4: Formatação final
+        formatter = ManualFormatter()
+        
+        format_options = {
+            'include_toc': body.include_toc,
+            'include_metadata': body.include_metadata,
+            'manual_type': body.manual_type,
+            'prepare_for_rag': body.prepare_for_rag
+        }
+        
+        try:
+            logging.info(f"Iniciando formatação em {body.format_type} com estilo {body.style}")
+            formatted_manual = formatter.format_manual(
+                analyzed_structure, 
+                body.format_type, 
+                body.style, 
+                format_options
+            )
+            logging.info(f"Formatação concluída. Formato: {formatted_manual.get('format', 'N/A')}")
+            logging.info(f"Tamanho do conteúdo: {len(str(formatted_manual.get('content', '')))}")
+        except RuntimeError as e:
+            logging.error(f"RuntimeError na formatação: {e}")
+            if "WeasyPrint não está disponível" in str(e):
+                return {"error": "PDF não disponível. WeasyPrint não está instalado corretamente no sistema. Tente usar HTML ou Markdown."}
+            elif "Erro no Pandoc" in str(e):
+                return {"error": "DOCX não disponível. Pandoc não está instalado corretamente no sistema. Tente usar HTML ou Markdown."}
+            else:
+                raise
+        except Exception as e:
+            logging.error(f"Erro inesperado na formatação: {e}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            return {"error": f"Erro na formatação: {str(e)}"}
+        
+        # Adicionar informações da análise de estrutura
+        formatted_manual['structure_analysis'] = {
+            'pattern': structure_analysis.pattern.value,
+            'quality_score': structure_analysis.quality_score,
+            'recommendations': structure_analysis.recommendations
+        }
+        
+        # Para PDF/DOCX, remover o campo 'content' ANTES de salvar no cache
+        if body.format_type in ['pdf', 'docx'] and 'content' in formatted_manual:
+            del formatted_manual['content']
+
+        # Salvar resultado no cache
+        manual_id = f"manual_{body.result_id}_{body.format_type}"
+        redis_cache.store_result(manual_id, formatted_manual)  # Usar Redis cache para consistência
+        
+        # Preparar resposta
+        response = {
+            'manual_id': manual_id,
+            'title': formatted_manual['title'],
+            'format': formatted_manual['format'],
+            'style': formatted_manual['style'],
+            'generated_at': formatted_manual['generated_at'],
+            'structure_analysis': formatted_manual['structure_analysis'],
+            'metadata': {
+                'total_words': formatted_manual['metadata'].get('total_words', 0),
+                'estimated_reading_time': formatted_manual['metadata'].get('estimated_reading_time', 0),
+                'content_types_found': formatted_manual['metadata'].get('content_types_found', []),
+                'translated': body.translate
+            },
+            'download_url': f"/api/deep-scrape/manual/{manual_id}/download"
+        }
+        
+        # Para formatos de texto, incluir conteúdo na resposta
+        if body.format_type in ['html', 'markdown']:
+            response['content'] = formatted_manual['content']
+        else:
+            # Para PDF/DOCX, não salvar o campo 'content' (bytes) no cache nem retornar no JSON
+            if 'content' in formatted_manual:
+                del formatted_manual['content']
+        
+        logging.info(f"Manual gerado com sucesso: {manual_id}")
+        return response
+        
+    except Exception as e:
+        logging.error(f"Erro na geração de manual: {e}")
+        return {"error": f"Erro na geração do manual: {str(e)}"}
+
+
+@router.get('/manual/{manual_id}/download', summary='Download de manual gerado')
+async def download_manual(
+    manual_id: str,
+    _: AuthRequired = None
+):
+    """
+    Faz download de manual gerado previamente.
+    """
+    try:
+        # Recuperar manual do cache
+        manual_data = redis_cache.load_result(manual_id)
+        if not manual_data:
+            return {"error": "Manual não encontrado"}
+        
+        format_type = manual_data.get('format', 'html')
+        title = manual_data.get('title', 'Manual').replace(' ', '_')
+        
+        # Preparar resposta baseada no formato
+        if format_type == 'html':
+            from fastapi.responses import HTMLResponse
+            return HTMLResponse(
+                content=manual_data['content'],
+                headers={"Content-Disposition": f"attachment; filename={title}.html"}
+            )
+        
+        elif format_type == 'markdown':
+            from fastapi.responses import PlainTextResponse
+            return PlainTextResponse(
+                content=manual_data['content'],
+                headers={"Content-Disposition": f"attachment; filename={title}.md"}
+            )
+        
+        elif format_type in ['pdf', 'docx']:
+            from fastapi.responses import FileResponse
+            file_path = manual_data.get('file_path')
+            if file_path and os.path.exists(file_path):
+                extension = 'pdf' if format_type == 'pdf' else 'docx'
+                return FileResponse(
+                    path=file_path,
+                    filename=f"{title}.{extension}",
+                    media_type=f"application/{extension}"
+                )
+            else:
+                return {"error": "Arquivo não encontrado"}
+        
+        else:
+            return {"error": f"Formato não suportado: {format_type}"}
+            
+    except Exception as e:
+        logging.error(f"Erro no download do manual: {e}")
+        return {"error": f"Erro no download: {str(e)}"}
+
+
+@router.get('/manual/preview/{result_id}', summary='Preview da estrutura do manual')
+async def preview_manual_structure(
+    result_id: str,
+    _: AuthRequired = None
+) -> dict:
+    """
+    Gera preview da estrutura do manual sem formatação completa.
+    Útil para mostrar ao usuário como ficará organizado antes da geração final.
+    """
+    try:
+        # Recuperar dados do deep scraping
+        # Tentar primeiro no Redis cache (usado pelo worker assíncrono)
+        scraped_data = redis_cache.load_result(result_id)
+        if not scraped_data:
+            # Fallback para cache de arquivos (scraping síncrono)
+            scraped_data = cache.load_result(result_id)
+            if not scraped_data:
+                return {"error": "Dados de scraping não encontrados"}
+        
+        # Importar módulos necessários
+        from manual_generator import ContentAnalyzer, StructureDetector
+        
+        # Análise rápida
+        content_analyzer = ContentAnalyzer()
+        analyzed_structure = content_analyzer.analyze_scraped_data(scraped_data)
+        
+        structure_detector = StructureDetector()
+        structure_analysis = structure_detector.analyze_structure(analyzed_structure)
+        
+        # Preparar preview
+        preview = {
+            'title': analyzed_structure['title'],
+            'structure_pattern': structure_analysis.pattern.value,
+            'quality_score': structure_analysis.quality_score,
+            'recommendations': structure_analysis.recommendations,
+            'estimated_reading_time': analyzed_structure['metadata'].get('estimated_reading_time', 0),
+            'total_words': analyzed_structure['metadata'].get('total_words', 0),
+            'content_types': analyzed_structure['metadata'].get('content_types_found', []),
+            'outline': []
+        }
+        
+        # Gerar sumário do manual
+        chapter_num = 1
+        
+        # Introdução
+        if analyzed_structure.get('introduction'):
+            preview['outline'].append({
+                'type': 'introduction',
+                'title': 'Introdução',
+                'level': 0,
+                'content_type': analyzed_structure['introduction'].content_type.value,
+                'word_count': analyzed_structure['introduction'].metadata.get('word_count', 0)
+            })
+        
+        # Capítulos
+        for chapter in analyzed_structure.get('chapters', []):
+            chapter_info = {
+                'type': 'chapter',
+                'number': chapter_num,
+                'title': chapter.title,
+                'level': 1,
+                'content_type': chapter.content_type.value,
+                'word_count': chapter.metadata.get('word_count', 0),
+                'subsections': []
+            }
+            
+            # Subseções
+            section_num = 1
+            for subsection in chapter.subsections:
+                subsection_info = {
+                    'type': 'section',
+                    'number': f"{chapter_num}.{section_num}",
+                    'title': subsection.title,
+                    'level': 2,
+                    'content_type': subsection.content_type.value,
+                    'word_count': subsection.metadata.get('word_count', 0)
+                }
+                chapter_info['subsections'].append(subsection_info)
+                section_num += 1
+            
+            preview['outline'].append(chapter_info)
+            chapter_num += 1
+        
+        # Apêndices
+        appendix_letter = 'A'
+        for appendix in analyzed_structure.get('appendices', []):
+            preview['outline'].append({
+                'type': 'appendix',
+                'letter': appendix_letter,
+                'title': appendix.title,
+                'level': 1,
+                'content_type': appendix.content_type.value,
+                'word_count': appendix.metadata.get('word_count', 0)
+            })
+            appendix_letter = chr(ord(appendix_letter) + 1)
+        
+        return preview
+        
+    except Exception as e:
+        logging.error(f"Erro no preview do manual: {e}")
+        return {"error": f"Erro no preview: {str(e)}"} 

@@ -191,6 +191,9 @@
         selectRoute.style.visibility = "hidden";
         errors.style.display = "none";
 
+        // Debug: log payload
+        console.log('Deep scrape payload:', JSON.stringify(payload, null, 2));
+
         fetch('/api/deep-scrape/async', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -205,7 +208,7 @@
                     fetchStatusWithRetry(result.job_id, 5, 500)
                         .then(statusData => {
                             hideProgressModal();
-                            window.location.href = "/view/" + statusData.result_id;
+                            checkForManualGeneration(statusData.result_id);
                         })
                         .catch(() => {
                             hideProgressModal();
@@ -219,7 +222,8 @@
             }
         })
         .catch(err => {
-            showError(errors, 'Erro de conexão ao iniciar scraping.');
+            console.error('Erro detalhado:', err);
+            showError(errors, 'Erro de conexão ao iniciar scraping: ' + err.message);
             resetButton(scrapeIt, selectRoute);
         });
     }
@@ -381,6 +385,200 @@
             }
             attempt(retries);
         });
+    }
+    
+    function checkForManualGeneration(resultId) {
+        const enableManual = document.getElementById('enable-manual');
+        
+        if (enableManual && enableManual.checked) {
+            // Gerar manual
+            generateManual(resultId);
+        } else {
+            // Ir direto para o resultado
+            window.location.href = "/view/" + resultId;
+        }
+    }
+    
+    function generateManual(resultId) {
+        const format = document.getElementById('manual-format').value;
+        const style = document.getElementById('manual-style').value;
+        const enableTranslation = document.getElementById('enable-translation').checked;
+        const prepareForRag = document.getElementById('prepare-for-rag').checked;
+        const sourceLanguage = document.getElementById('source-language').value;
+        const targetLanguage = document.getElementById('target-language').value;
+        const translationProvider = document.getElementById('translation-provider').value;
+        const translationApiKey = document.getElementById('translation-api-key').value;
+        
+        const payload = {
+            result_id: resultId,
+            format_type: format,
+            style: style,
+            translate: enableTranslation,
+            prepare_for_rag: prepareForRag,
+            source_language: sourceLanguage,
+            target_language: targetLanguage,
+            translation_provider: translationProvider,
+            translation_api_key: translationApiKey || null,
+            manual_type: 'general',
+            include_toc: true,
+            include_metadata: true
+        };
+        
+        // Atualizar UI
+        showProgressModal();
+        const statusMessage = prepareForRag ? 'Gerando manual para RAG (chunks)...' : 'Gerando manual profissional...';
+        updateProgressStatus(statusMessage);
+        
+        fetch('/api/deep-scrape/manual', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
+        .then(result => {
+            console.log('Manual generation result:', result); // Debug log
+            hideProgressModal();
+            
+            if (result.error) {
+                showError(document.getElementById("errors"), 'Erro na geração do manual: ' + result.error);
+                resetButton(document.getElementById("scrape-it"), document.getElementById("select-route"));
+            } else {
+                // Manual gerado com sucesso
+                showManualResult(result);
+            }
+        })
+        .catch(error => {
+            console.error('Erro na geração do manual:', error);
+            hideProgressModal();
+            
+            // Log detalhado do erro para debug
+            if (error.response) {
+                console.error('Response status:', error.response.status);
+                console.error('Response data:', error.response.data);
+            }
+            
+            showError(document.getElementById("errors"), 'Erro de conexão: ' + error.message);
+            resetButton(document.getElementById("scrape-it"), document.getElementById("select-route"));
+        });
+    }
+    
+    function showManualResult(manualData) {
+        console.log('Manual data received:', manualData); // Debug log
+        
+        // Verificar se os dados necessários existem
+        if (!manualData) {
+            showError(document.getElementById("errors"), 'Dados do manual não recebidos');
+            return;
+        }
+        
+        // Valores padrão para campos que podem estar ausentes
+        const title = manualData.title || 'Manual Gerado';
+        const format = manualData.format || 'html';
+        const style = manualData.style || 'professional';
+        const downloadUrl = manualData.download_url || '#';
+        
+        // Verificar se structure_analysis existe e tem os campos necessários
+        const structureAnalysis = manualData.structure_analysis || {};
+        const qualityScore = structureAnalysis.quality_score || 0;
+        const pattern = structureAnalysis.pattern || 'desconhecido';
+        const recommendations = structureAnalysis.recommendations || [];
+        
+        // Verificar se metadata existe
+        const metadata = manualData.metadata || {};
+        const totalWords = metadata.total_words || 0;
+        const readingTime = metadata.estimated_reading_time || 0;
+        const translated = metadata.translated || false;
+        const isRagFormat = manualData.format === 'markdown' && manualData.content && manualData.content.includes('+++');
+        
+        // Criar modal para mostrar resultado do manual
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        `;
+        
+        const content = document.createElement('div');
+        content.style.cssText = `
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            max-width: 80%;
+            max-height: 80%;
+            overflow-y: auto;
+            position: relative;
+        `;
+        
+        const qualityColor = qualityScore > 70 ? '#27ae60' : 
+                           qualityScore > 50 ? '#f39c12' : '#e74c3c';
+        
+        // Extrair result_id do manual_id para o link "Ver Dados Originais"
+        let resultId = '';
+        if (manualData.manual_id) {
+            const parts = manualData.manual_id.split('_');
+            if (parts.length >= 2) {
+                resultId = parts[1];
+            }
+        }
+        
+        content.innerHTML = `
+            <button onclick="this.parentElement.parentElement.remove()" style="position: absolute; top: 10px; right: 15px; background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
+            <h2>${isRagFormat ? '🤖 Manual RAG Gerado!' : '📖 Manual Gerado com Sucesso!'}</h2>
+            <div style="margin: 20px 0;">
+                <h3>${title}</h3>
+                <p><strong>Formato:</strong> ${format.toUpperCase()}${isRagFormat ? ' (RAG Chunks)' : ''}</p>
+                <p><strong>Estilo:</strong> ${style}</p>
+                <p><strong>Qualidade da Estrutura:</strong> <span style="color: ${qualityColor}; font-weight: bold;">${qualityScore.toFixed(1)}%</span></p>
+                <p><strong>Padrão Detectado:</strong> ${pattern}</p>
+                <p><strong>Palavras:</strong> ${totalWords}</p>
+                <p><strong>Tempo de Leitura:</strong> ${readingTime} minutos</p>
+                ${translated ? '<p style="color: #27ae60;"><strong>✓ Traduzido</strong></p>' : ''}
+                ${isRagFormat ? '<p style="color: #007bff;"><strong>🤖 Otimizado para RAG (dividido em chunks com separador +++)</strong></p>' : ''}
+            </div>
+            
+            ${recommendations.length > 0 ? `
+            <div style="margin: 20px 0;">
+                <h4>Recomendações de Estrutura:</h4>
+                <ul>
+                    ${recommendations.map(rec => `<li>${rec}</li>`).join('')}
+                </ul>
+            </div>
+            ` : ''}
+            
+            <div style="margin: 20px 0; display: flex; gap: 10px; flex-wrap: wrap;">
+                <a href="${downloadUrl}" target="_blank" style="background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
+                    📥 Download Manual
+                </a>
+                ${resultId ? `
+                <a href="/view/${resultId}" style="background: #6c757d; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
+                    👁️ Ver Dados Originais
+                </a>
+                ` : ''}
+                ${(format === 'html' || format === 'markdown') ? 
+                    `<button onclick="window.open('${downloadUrl}', '_blank')" style="background: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">
+                        👀 Preview
+                    </button>` : ''
+                }
+            </div>
+        `;
+        
+        modal.appendChild(content);
+        document.body.appendChild(modal);
+        
+        // Reset button
+        resetButton(document.getElementById("scrape-it"), document.getElementById("select-route"));
     }
 
 }();

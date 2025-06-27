@@ -4,6 +4,9 @@ from urllib.parse import parse_qs, urlparse, urlunparse, parse_qsl, urlencode
 from bs4 import BeautifulSoup
 from starlette.datastructures import URL
 
+import re
+import html
+
 
 TITLE_MAX_DISTANCE = 350
 ACCEPTABLE_LINK_TEXT_LEN = 40
@@ -209,3 +212,62 @@ def normalize_url(url: str, ignore_params=None) -> str:
         return normalized
     except Exception:
         return url  # fallback para a original se falhar
+
+
+def html_to_markdown(html_content: str) -> str:
+    """Convert HTML content to Markdown format"""
+    if not html_content:
+        return ""
+    # Remove script and style tags
+    html_content = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+    html_content = re.sub(r'<style[^>]*>.*?</style>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+    # Convert HTML tags to Markdown
+    conversions = [
+        (r'<h1[^>]*>(.*?)</h1>', r'# \1\n'),
+        (r'<h2[^>]*>(.*?)</h2>', r'## \1\n'),
+        (r'<h3[^>]*>(.*?)</h3>', r'### \1\n'),
+        (r'<h4[^>]*>(.*?)</h4>', r'#### \1\n'),
+        (r'<h5[^>]*>(.*?)</h5>', r'##### \1\n'),
+        (r'<h6[^>]*>(.*?)</h6>', r'###### \1\n'),
+        (r'<p[^>]*>(.*?)</p>', r'\1\n\n'),
+        (r'<br[^>]*/?>', r'\n'),
+        (r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r'[\2](\1)'),
+        (r'<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"[^>]*/?>', r'![\2](\1)'),
+        (r'<img[^>]*alt="([^"]*)"[^>]*src="([^"]*)"[^>]*/?>', r'![\1](\2)'),
+        (r'<img[^>]*src="([^"]*)"[^>]*/?>', r'![](\1)'),
+        (r'<strong[^>]*>(.*?)</strong>', r'**\1**'),
+        (r'<b[^>]*>(.*?)</b>', r'**\1**'),
+        (r'<em[^>]*>(.*?)</em>', r'*\1*'),
+        (r'<i[^>]*>(.*?)</i>', r'*\1*'),
+        (r'<code[^>]*>(.*?)</code>', r'`\1`'),
+        (r'<pre[^>]*>(.*?)</pre>', r'```\n\1\n```\n'),
+        (r'<ul[^>]*>(.*?)</ul>', lambda m: _convert_list(m.group(1), ordered=False)),
+        (r'<ol[^>]*>(.*?)</ol>', lambda m: _convert_list(m.group(1), ordered=True)),
+        (r'<blockquote[^>]*>(.*?)</blockquote>', r'> \1\n'),
+        (r'<div[^>]*>(.*?)</div>', r'\1\n'),
+        (r'<span[^>]*>(.*?)</span>', r'\1'),
+        (r'<[^>]+>', ''),
+    ]
+    for pattern, replacement in conversions:
+        if callable(replacement):
+            html_content = re.sub(pattern, replacement, html_content, flags=re.DOTALL | re.IGNORECASE)
+        else:
+            html_content = re.sub(pattern, replacement, html_content, flags=re.DOTALL | re.IGNORECASE)
+    html_content = html.unescape(html_content)
+    html_content = re.sub(r'\n\s*\n\s*\n', '\n\n', html_content)
+    html_content = re.sub(r'[ \t]+', ' ', html_content)
+    html_content = html_content.strip()
+    return html_content
+
+
+def _convert_list(list_content: str, ordered: bool = False) -> str:
+    """Convert HTML list items to Markdown"""
+    items = re.findall(r'<li[^>]*>(.*?)</li>', list_content, flags=re.DOTALL | re.IGNORECASE)
+    result = []
+    for i, item in enumerate(items):
+        item = re.sub(r'<[^>]+>', '', item).strip()
+        if ordered:
+            result.append(f"{i+1}. {item}")
+        else:
+            result.append(f"- {item}")
+    return '\n'.join(result) + '\n\n'

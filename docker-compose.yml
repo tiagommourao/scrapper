@@ -18,7 +18,7 @@ services:
       - BROWSER_CONTEXT_LIMIT=20
       - SCREENSHOT_TYPE=jpeg
       - SCREENSHOT_QUALITY=80
-      - UVICORN_WORKERS=5
+      - UVICORN_WORKERS=1
       - DEBUG=false
       - REDIS_URL=redis://redis:6379/0
       - REDIS_ENABLED=true

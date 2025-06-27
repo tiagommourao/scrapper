@@ -104,6 +104,88 @@
               Exclude Patterns (comma-separated)
               <input type="text" id="exclude-patterns" name="exclude-patterns" placeholder="/admin,/login,/logout">
             </label>
+            
+            <!-- Nova seção para Manual Generation -->
+            <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px;">
+              <label for="enable-manual">
+                <input type="checkbox" id="enable-manual" name="enable-manual">
+                Generate Manual (Professional Documentation)
+              </label>
+              
+              <div id="manual-options" style="display: none; margin-top: 15px; padding-left: 20px; background: #f8f9fa; padding: 15px; border-radius: 5px;">
+                <div class="grid">
+                  <label for="manual-format">
+                    Format
+                    <select id="manual-format" name="manual-format">
+                      <option value="html">HTML</option>
+                      <option value="markdown">Markdown</option>
+                      <option value="pdf">PDF</option>
+                      <option value="docx">Word (DOCX)</option>
+                    </select>
+                  </label>
+                  <label for="manual-style">
+                    Style
+                    <select id="manual-style" name="manual-style">
+                      <option value="professional">Professional</option>
+                      <option value="technical">Technical</option>
+                      <option value="minimal">Minimal</option>
+                    </select>
+                  </label>
+                </div>
+                
+                <div class="grid">
+                  <label for="enable-translation">
+                    <input type="checkbox" id="enable-translation" name="enable-translation">
+                    Enable Translation
+                  </label>
+                  <label for="prepare-for-rag">
+                    <input type="checkbox" id="prepare-for-rag" name="prepare-for-rag">
+                    Prepare for RAG
+                  </label>
+                </div>
+                
+                <div id="translation-options" style="display: none; margin-top: 10px;">
+                  <div class="grid">
+                    <label for="source-language">
+                      Source Language
+                      <select id="source-language" name="source-language">
+                        <option value="auto">Auto-detect</option>
+                        <option value="en">English</option>
+                        <option value="pt">Portuguese</option>
+                        <option value="es">Spanish</option>
+                        <option value="fr">French</option>
+                        <option value="de">German</option>
+                      </select>
+                    </label>
+                    <label for="target-language">
+                      Target Language
+                      <select id="target-language" name="target-language">
+                        <option value="pt">Portuguese</option>
+                        <option value="en">English</option>
+                        <option value="es">Spanish</option>
+                        <option value="fr">French</option>
+                        <option value="de">German</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="grid">
+                    <label for="translation-provider">
+                      Translation Provider
+                      <select id="translation-provider" name="translation-provider">
+                        <option value="libre">LibreTranslate (Free)</option>
+                        <option value="google">Google Translate</option>
+                        <option value="deepl">DeepL</option>
+                        <option value="openai">OpenAI GPT</option>
+                      </select>
+                    </label>
+                    <label for="translation-api-key">
+                      API Key (if required)
+                      <input type="password" id="translation-api-key" name="translation-api-key" placeholder="Enter API key">
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
           </details>
           {% endif %}
           
@@ -145,6 +227,26 @@
       apiEndpoint = "/api/links";
     } else if (currentPath === '/deep-scrape') {
       apiEndpoint = "/api/deep-scrape";
+    }
+    
+    // Manual generation controls
+    if (currentPath === '/deep-scrape') {
+      document.addEventListener('DOMContentLoaded', function() {
+        const enableManual = document.getElementById('enable-manual');
+        const manualOptions = document.getElementById('manual-options');
+        const enableTranslation = document.getElementById('enable-translation');
+        const translationOptions = document.getElementById('translation-options');
+        
+        // Toggle manual options
+        enableManual.addEventListener('change', function() {
+          manualOptions.style.display = this.checked ? 'block' : 'none';
+        });
+        
+        // Toggle translation options
+        enableTranslation.addEventListener('change', function() {
+          translationOptions.style.display = this.checked ? 'block' : 'none';
+        });
+      });
     }
   </script>
   <script src="/static/query.js"></script>
