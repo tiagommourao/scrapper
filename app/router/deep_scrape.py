@@ -521,12 +521,25 @@ async def deep_scrape(
     # split URL into parts: host with scheme, path with query, query params as a dict
     host_url, full_path, query_dict = util.split_url(request.url)
 
-    # get cache data if exists
-    r_id = redis_cache.make_key(full_path)  # unique result ID
+    # Create deep scrape parameters dict for cache key generation
+    deep_scrape_cache_params = {
+        'depth': deep_scrape_params.depth,
+        'max_urls_per_level': deep_scrape_params.max_urls_per_level,
+        'same_domain_only': deep_scrape_params.same_domain_only,
+        'exclude_patterns': deep_scrape_params.exclude_patterns,
+    }
+
+    # get cache data if exists - now includes deep scraping parameters
+    r_id = redis_cache.make_key(str(full_path), deep_scrape_cache_params)  # unique result ID
     if params.cache:
         data = redis_cache.load_result(key=r_id)
         if data:
+            logger.info(f"Cache HIT for deep scrape: {r_id}")
             return data
+        logger.info(f"Cache MISS for deep scrape: {r_id}")
+
+    # Get cached individual URLs for incremental scraping
+    cached_urls = redis_cache.get_cached_urls(r_id) if params.cache else {}
 
     browser: Browser = request.state.browser
     semaphore: asyncio.Semaphore = request.state.semaphore
@@ -575,6 +588,43 @@ async def deep_scrape(
                 try:
                     logger.info(f"Scraping: {current_url}")
                     
+                    # Check if we have this URL cached for incremental scraping
+                    cached_page_result = None
+                    if params.cache and current_url in cached_urls:
+                        cached_page_result = cached_urls[current_url]
+                        logger.info(f"Using cached result for URL: {current_url}")
+                        
+                        # Add cached result to current results
+                        cached_page_result['parent_index'] = parent_idx
+                        cached_page_result['level'] = current_level
+                        level_data['pages'].append(cached_page_result)
+                        all_results.append(cached_page_result)
+                        
+                        # Still need to extract links for next level if not at max depth
+                        if current_level + 1 < deep_scrape_params.depth:
+                            # Try to get links from cached content
+                            cached_content = cached_page_result.get('fullContent', '')
+                            if cached_content:
+                                # Parse links from cached HTML content
+                                try:
+                                    from bs4 import BeautifulSoup
+                                    soup = BeautifulSoup(cached_content, 'html.parser')
+                                    links = []
+                                    for link in soup.find_all('a', href=True)[:20]:
+                                        link_url = link['href']
+                                        if link_url and _is_valid_url(
+                                            link_url, current_url, base_domain, 
+                                            deep_scrape_params, visited_urls
+                                        ):
+                                            absolute_url = urljoin(current_url, link_url)
+                                            url_queue.append((absolute_url, current_level + 1, len(all_results)))
+                                except Exception as e:
+                                    logger.warning(f"Failed to extract links from cached content: {e}")
+                        
+                        # Skip to next URL since we used cached data
+                        continue
+                    
+                    # If not cached, scrape normally
                     async with new_context(browser, browser_params, proxy_params) as context:
                         page = await context.new_page()
                         await page_processing(
@@ -640,6 +690,10 @@ async def deep_scrape(
                             
                             if params.full_content:
                                 page_result['fullContent'] = page_content
+                            
+                            # Store individual URL result for future incremental scraping
+                            if params.cache:
+                                redis_cache.store_url_result(page_url, page_result)
                             
                             level_data['pages'].append(page_result)
                             all_results.append(page_result)
@@ -1022,19 +1076,30 @@ async def deep_scrape_async(body: AsyncDeepScrapeRequest) -> dict:
     Retorna um job_id para consulta posterior do status/resultados.
     Se já houver resultado no cache, retorna imediatamente.
     """
-    # Gerar chave normalizada para a URL
-    r_id = redis_cache.make_key(body.url)
+    # Create deep scrape parameters dict for cache key generation
+    deep_scrape_cache_params = {
+        'depth': body.depth,
+        'max_urls_per_level': body.max_urls_per_level,
+        'same_domain_only': body.same_domain_only,
+        'exclude_patterns': body.exclude_patterns,
+    }
+    
+    # Gerar chave normalizada para a URL com parâmetros de deep scraping
+    r_id = redis_cache.make_key(body.url, deep_scrape_cache_params)
     logging.info(f"[deep_scrape_async] Chave de cache gerada: {r_id}")
-    cached = redis_cache.load_result(key=r_id)
-    if cached:
-        logging.info(f"[deep_scrape_async] Cache HIT para chave: {r_id}")
-        return {
-            'success': True,
-            'from_cache': True,
-            'result_id': r_id,
-            'resultUri': f'/result/{r_id}',
-            'message': 'Resultado servido do cache.'
-        }
+    
+    if body.cache:
+        cached = redis_cache.load_result(key=r_id)
+        if cached:
+            logging.info(f"[deep_scrape_async] Cache HIT para chave: {r_id}")
+            return {
+                'success': True,
+                'from_cache': True,
+                'result_id': r_id,
+                'resultUri': f'/result/{r_id}',
+                'message': 'Resultado servido do cache.'
+            }
+    
     logging.info(f"[deep_scrape_async] Cache MISS para chave: {r_id}. Enfileirando novo job.")
     
     # Converter request body para o formato esperado pelo worker

@@ -14,12 +14,14 @@
             let delay = document.getElementById("delay");
             let sameDomain = document.getElementById("same-domain");
             let excludePatterns = document.getElementById("exclude-patterns");
+            let ignoreCache = document.getElementById("ignore-cache");
             
             if (depth && depth.value) params.depth = depth.value;
             if (maxUrls && maxUrls.value) params["max-urls-per-level"] = maxUrls.value;
             if (delay && delay.value) params["delay-between-requests"] = delay.value;
             if (sameDomain) params["same-domain-only"] = sameDomain.checked ? "true" : "false";
             if (excludePatterns && excludePatterns.value) params["exclude-patterns"] = excludePatterns.value;
+            if (ignoreCache && ignoreCache.checked) params["cache"] = "false";
         }
 
         document.getElementById("query-params").value.split(/\r?\n/).forEach((line) => {
@@ -122,7 +124,7 @@
     
     // add event listeners for deep scraping controls if they exist
     if (window.location.pathname === '/deep-scrape') {
-        let deepScrapeControls = ['depth', 'max-urls', 'delay', 'same-domain', 'exclude-patterns'];
+        let deepScrapeControls = ['depth', 'max-urls', 'delay', 'same-domain', 'exclude-patterns', 'ignore-cache'];
         deepScrapeControls.forEach(controlId => {
             let control = document.getElementById(controlId);
             if (control) {

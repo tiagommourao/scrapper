@@ -79,9 +79,35 @@ class RedisCache:
             self.redis_client = None
             self.redis_enabled = False
     
-    def make_key(self, path: str) -> str:
-        """Generate cache key using normalized URL"""
+    def make_key(self, path: str, deep_scrape_params: dict = None) -> str:
+        """
+        Generate cache key using normalized URL and deep scraping parameters.
+        
+        Args:
+            path: URL path
+            deep_scrape_params: Optional dict with deep scraping parameters
+        
+        Returns:
+            Cache key string
+        """
         normalized = normalize_url(path)
+        
+        # If deep scraping parameters are provided, include them in the key
+        if deep_scrape_params:
+            # Create a consistent string from relevant parameters
+            params_str = ""
+            relevant_params = ['depth', 'max_urls_per_level', 'same_domain_only', 'exclude_patterns']
+            
+            for param in relevant_params:
+                if param in deep_scrape_params:
+                    value = deep_scrape_params[param]
+                    if isinstance(value, list):
+                        value = ','.join(sorted(value))  # Sort for consistency
+                    params_str += f"{param}:{value};"
+            
+            if params_str:
+                normalized += f"?deep_params={params_str}"
+        
         return file_cache.make_key(normalized)
     
     def store_result(self, key: str, data: Dict[str, Any], ttl: int = 3600) -> bool:
@@ -287,6 +313,83 @@ class RedisCache:
                 logger.error(f"Failed to cleanup file cache: {e}")
         
         return cleaned
+    
+    def store_url_result(self, url: str, data: Dict[str, Any], ttl: int = 7200) -> bool:
+        """
+        Store individual URL scraping result for incremental caching.
+        TTL is longer (2 hours) since individual URLs change less frequently.
+        """
+        success = False
+        url_key = f"url_result:{self.make_key(url)}"
+        
+        try:
+            if self.redis_enabled and self.phase >= 1:
+                # Store in Redis with TTL
+                metadata = {
+                    'stored_at': datetime.now().isoformat(),
+                    'ttl': ttl,
+                    'url': url
+                }
+                
+                self.redis_client.hset(url_key, mapping={
+                    'data': json.dumps(data),
+                    'metadata': json.dumps(metadata)
+                })
+                
+                self.redis_client.expire(url_key, ttl)
+                logger.debug(f"Stored URL result in Redis: {url_key}")
+                success = True
+                
+        except Exception as e:
+            logger.error(f"Failed to store URL result in Redis: {e}")
+        
+        return success
+    
+    def load_url_result(self, url: str) -> Optional[Dict[str, Any]]:
+        """
+        Load individual URL scraping result for incremental caching.
+        """
+        if self.redis_enabled and self.phase >= 1:
+            try:
+                url_key = f"url_result:{self.make_key(url)}"
+                result = self.redis_client.hgetall(url_key)
+                
+                if result and 'data' in result:
+                    data = json.loads(result['data'])
+                    logger.debug(f"Loaded URL result from Redis: {url_key}")
+                    return data
+                    
+            except Exception as e:
+                logger.error(f"Failed to load URL result from Redis: {e}")
+        
+        return None
+    
+    def get_cached_urls(self, base_key: str) -> Dict[str, Dict[str, Any]]:
+        """
+        Get all cached URLs for incremental deep scraping.
+        Returns dict with URL as key and cached data as value.
+        """
+        cached_urls = {}
+        
+        if self.redis_enabled and self.phase >= 1:
+            try:
+                # Get all URL result keys
+                pattern = f"url_result:*"
+                keys = self.redis_client.keys(pattern)
+                
+                for key in keys:
+                    result = self.redis_client.hgetall(key)
+                    if result and 'data' in result and 'metadata' in result:
+                        data = json.loads(result['data'])
+                        metadata = json.loads(result['metadata'])
+                        url = metadata.get('url', '')
+                        if url:
+                            cached_urls[url] = data
+                            
+            except Exception as e:
+                logger.error(f"Failed to get cached URLs: {e}")
+        
+        return cached_urls
 
 
 # Global cache instance
@@ -302,9 +405,9 @@ def get_cache() -> RedisCache:
 
 
 # Compatibility functions for existing code
-def make_key(path: str) -> str:
+def make_key(path: str, deep_scrape_params: dict = None) -> str:
     """Compatibility function"""
-    return get_cache().make_key(path)
+    return get_cache().make_key(path, deep_scrape_params)
 
 
 def store_result(key: str, data: Dict[str, Any]) -> bool:
@@ -324,4 +427,19 @@ def delete_result(key: str) -> bool:
 
 def exists(key: str) -> bool:
     """Compatibility function"""
-    return get_cache().exists(key) 
+    return get_cache().exists(key)
+
+
+def store_url_result(url: str, data: Dict[str, Any]) -> bool:
+    """Store individual URL result for incremental caching"""
+    return get_cache().store_url_result(url, data)
+
+
+def load_url_result(url: str) -> Optional[Dict[str, Any]]:
+    """Load individual URL result for incremental caching"""
+    return get_cache().load_url_result(url)
+
+
+def get_cached_urls(base_key: str) -> Dict[str, Dict[str, Any]]:
+    """Get all cached URLs for incremental deep scraping"""
+    return get_cache().get_cached_urls(base_key) 
