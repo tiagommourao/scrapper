@@ -14,7 +14,7 @@ from pathlib import Path
 import tldextract
 
 # WeasyPrint será importado sob demanda para evitar falhas de carregamento do módulo
-WEASYPRINT_AVAILABLE = None  # Will be determined on first use
+WEASYPRINT_AVAILABLE = True  # Forçar como True - sabemos que está disponível no Docker
 
 from fastapi import APIRouter, Query, Depends
 from fastapi.requests import Request
@@ -781,8 +781,8 @@ async def deep_scrape_pdf(
     Generate a high-quality PDF document from deep scrape results using WeasyPrint.
     This produces much better results than client-side PDF generation.
     """
-    # WeasyPrint está disponível - testamos anteriormente
-    # Vamos assumir que está funcionando e prosseguir
+    logging.info("🔍 Iniciando geração de PDF...")
+    print("🔍 DEBUG: Endpoint PDF chamado")
     
     # Get existing deep scrape results
     host_url, full_path, query_dict = util.split_url(request.url)
