@@ -521,6 +521,9 @@ async def deep_scrape(
     # split URL into parts: host with scheme, path with query, query params as a dict
     host_url, full_path, query_dict = util.split_url(request.url)
 
+    # Initialize logger first
+    logger = logging.getLogger(__name__)
+
     # Create deep scrape parameters dict for cache key generation
     deep_scrape_cache_params = {
         'depth': deep_scrape_params.depth,
@@ -544,7 +547,6 @@ async def deep_scrape(
     browser: Browser = request.state.browser
     semaphore: asyncio.Semaphore = request.state.semaphore
 
-    logger = logging.getLogger(__name__)
     logger.info(f"Starting deep scrape of {url.url} with depth {deep_scrape_params.depth}")
 
     # Initialize tracking variables
