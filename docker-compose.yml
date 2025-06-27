@@ -22,7 +22,7 @@ services:
       - DEBUG=false
       - REDIS_URL=redis://redis:6379/0
       - REDIS_ENABLED=true
-      - OPENAI_API_KEY=REMOVIDO"
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-4.1-mini
     restart: unless-stopped
     healthcheck:
@@ -60,7 +60,7 @@ services:
       - BROWSER_TYPE=firefox
       - REDIS_URL=redis://redis:6379/0
       - REDIS_ENABLED=true
-      - OPENAI_API_KEY=REMOVIDO
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-4.1-mini
     command: ["python", "worker_deep_scrape.py"]
     working_dir: /home/pwuser/app
