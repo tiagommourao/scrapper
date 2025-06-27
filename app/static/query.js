@@ -400,10 +400,12 @@
     }
     
     function generateManual(resultId) {
-        const format = document.getElementById('manual-format').value;
-        const style = document.getElementById('manual-style').value;
-        const enableTranslation = document.getElementById('enable-translation').checked;
         const prepareForRag = document.getElementById('prepare-for-rag').checked;
+        
+        // Se RAG estiver ativado, forçar markdown e desabilitar tradução
+        const format = prepareForRag ? 'markdown' : document.getElementById('manual-format').value;
+        const style = document.getElementById('manual-style').value;
+        const enableTranslation = prepareForRag ? false : document.getElementById('enable-translation').checked;
         const sourceLanguage = document.getElementById('source-language').value;
         const targetLanguage = document.getElementById('target-language').value;
         const translationProvider = document.getElementById('translation-provider').value;
@@ -423,6 +425,11 @@
             include_toc: true,
             include_metadata: true
         };
+        
+        // Mostrar aviso se RAG estiver ativado
+        if (prepareForRag) {
+            console.log('🤖 Modo RAG ativado - forçando markdown e desabilitando tradução');
+        }
         
         // Atualizar UI
         showProgressModal();
@@ -580,5 +587,47 @@
         // Reset button
         resetButton(document.getElementById("scrape-it"), document.getElementById("select-route"));
     }
+    
+    // Event listener para RAG - desabilita outras opções quando ativado
+    document.addEventListener('DOMContentLoaded', function() {
+        const ragCheckbox = document.getElementById('prepare-for-rag');
+        if (ragCheckbox) {
+            ragCheckbox.addEventListener('change', function() {
+                const formatSelect = document.getElementById('manual-format');
+                const translationCheckbox = document.getElementById('enable-translation');
+                
+                if (this.checked) {
+                    // RAG ativado - desabilitar outras opções
+                    if (formatSelect) {
+                        formatSelect.value = 'markdown';
+                        formatSelect.disabled = true;
+                    }
+                    if (translationCheckbox) {
+                        translationCheckbox.checked = false;
+                        translationCheckbox.disabled = true;
+                    }
+                    
+                    // Mostrar aviso
+                    if (!document.getElementById('rag-warning')) {
+                        const warning = document.createElement('div');
+                        warning.id = 'rag-warning';
+                        warning.style.cssText = 'background: #e8f4fd; border: 1px solid #bee5eb; padding: 10px; margin: 10px 0; border-radius: 4px; color: #0c5460;';
+                        warning.innerHTML = '🤖 <strong>Modo RAG ativado:</strong> Formato forçado para Markdown, tradução desabilitada, chunks otimizados para retrieval.';
+                        this.parentNode.parentNode.appendChild(warning);
+                    }
+                } else {
+                    // RAG desativado - reabilitar opções
+                    if (formatSelect) formatSelect.disabled = false;
+                    if (translationCheckbox) translationCheckbox.disabled = false;
+                    
+                    // Remover aviso
+                    const warning = document.getElementById('rag-warning');
+                    if (warning) {
+                        warning.remove();
+                    }
+                }
+            });
+        }
+    });
 
 }();

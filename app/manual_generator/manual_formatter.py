@@ -83,8 +83,10 @@ class ManualFormatter:
         
         # Verificar se é para RAG - força markdown e aplica formatação específica
         if options.get('prepare_for_rag', False):
+            self.logger.info("🤖 Modo RAG ativado - aplicando formatação especial")
             formatted_manual['content'] = self._format_markdown_for_rag(analyzed_structure, options)
             formatted_manual['format'] = 'markdown'  # Força markdown para RAG
+            formatted_manual['rag_optimized'] = True  # Flag para identificar conteúdo RAG
         else:
             # Formatar baseado no tipo
             if format_type == 'html':
@@ -235,61 +237,161 @@ class ManualFormatter:
         Formata manual em Markdown otimizado para RAG
         - Remove imagens e referências visuais
         - Não inclui sumário
-        - Divide em chunks usando +++
+        - Divide em chunks de 1500-2000 caracteres por seção
         - Mantém apenas texto puro
+        - Usa +++ como separador de chunks
         """
+        self.logger.info("📋 Iniciando formatação RAG - removendo elementos visuais e criando chunks")
+        
         chunks = []
+        max_chunk_size = 1800  # Tamanho ideal para GPT (1500-2000 chars)
         
         # Título principal (sem metadados visuais)
-        chunks.append(f"# {structure['title']}")
+        title_chunk = f"# {structure['title']}\n\nDocumento otimizado para RAG (Retrieval-Augmented Generation)"
+        chunks.append(title_chunk)
         
         # Introdução (se existir)
         if structure.get('introduction'):
             intro_content = self._clean_content_for_rag(structure['introduction'].content)
             if intro_content.strip():
-                chunks.append(f"## Introdução\n\n{intro_content}")
+                intro_chunks = self._split_content_into_chunks(
+                    f"## Introdução\n\n{intro_content}", 
+                    max_chunk_size,
+                    "Introdução"
+                )
+                chunks.extend(intro_chunks)
         
         # Capítulos
         for i, chapter in enumerate(structure.get('chapters', []), 1):
             chapter_content = self._clean_content_for_rag(chapter.content)
             if chapter_content.strip():
-                chunks.append(f"## {chapter.title}\n\n{chapter_content}")
+                chapter_chunks = self._split_content_into_chunks(
+                    f"## {chapter.title}\n\n{chapter_content}",
+                    max_chunk_size,
+                    f"Capítulo {i}: {chapter.title}"
+                )
+                chunks.extend(chapter_chunks)
             
             # Subseções
             for j, subsection in enumerate(chapter.subsections, 1):
                 subsection_content = self._clean_content_for_rag(subsection.content)
                 if subsection_content.strip():
-                    chunks.append(f"### {subsection.title}\n\n{subsection_content}")
+                    subsection_chunks = self._split_content_into_chunks(
+                        f"### {subsection.title}\n\n{subsection_content}",
+                        max_chunk_size,
+                        f"Seção {i}.{j}: {subsection.title}"
+                    )
+                    chunks.extend(subsection_chunks)
         
         # Apêndices
         for i, appendix in enumerate(structure.get('appendices', [])):
             appendix_content = self._clean_content_for_rag(appendix.content)
             if appendix_content.strip():
-                chunks.append(f"## {appendix.title}\n\n{appendix_content}")
+                appendix_chunks = self._split_content_into_chunks(
+                    f"## {appendix.title}\n\n{appendix_content}",
+                    max_chunk_size,
+                    f"Apêndice {chr(ord('A') + i)}: {appendix.title}"
+                )
+                chunks.extend(appendix_chunks)
+        
+        self.logger.info(f"✅ RAG: Criados {len(chunks)} chunks otimizados para retrieval")
         
         # Juntar chunks com separador +++
         return '\n\n+++\n\n'.join(chunks)
     
+    def _split_content_into_chunks(self, content: str, max_size: int, section_name: str) -> List[str]:
+        """
+        Divide conteúdo em chunks inteligentes respeitando limites de tamanho
+        Prioriza quebras por parágrafos e frases
+        """
+        if len(content) <= max_size:
+            return [content]
+        
+        chunks = []
+        current_chunk = ""
+        
+        # Dividir por parágrafos primeiro
+        paragraphs = content.split('\n\n')
+        
+        for para in paragraphs:
+            # Se o parágrafo é muito grande, dividir por frases
+            if len(para) > max_size:
+                sentences = para.split('. ')
+                for sentence in sentences:
+                    test_chunk = current_chunk + '\n\n' + sentence if current_chunk else sentence
+                    
+                    if len(test_chunk) > max_size and current_chunk:
+                        # Finalizar chunk atual
+                        chunks.append(current_chunk.strip())
+                        current_chunk = sentence
+                    else:
+                        current_chunk = test_chunk
+            else:
+                test_chunk = current_chunk + '\n\n' + para if current_chunk else para
+                
+                if len(test_chunk) > max_size and current_chunk:
+                    # Finalizar chunk atual
+                    chunks.append(current_chunk.strip())
+                    current_chunk = para
+                else:
+                    current_chunk = test_chunk
+        
+        # Adicionar último chunk
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+        
+        self.logger.info(f"📄 {section_name}: {len(content)} chars → {len(chunks)} chunks")
+        return chunks
+    
     def _clean_content_for_rag(self, content: str) -> str:
         """
         Limpa conteúdo para RAG removendo elementos visuais e formatação desnecessária
+        - Remove todas as imagens e referências visuais
+        - Remove HTML e formatação complexa
+        - Mantém apenas texto puro e estrutura básica
         """
         if not content:
             return ""
         
-        # Remover tags HTML se existirem
         import re
+        
+        # Remover tags HTML se existirem
         content = re.sub(r'<[^>]+>', '', content)
         
-        # Remover referências a imagens
+        # Remover TODAS as referências a imagens e mídia
         content = re.sub(r'!\[.*?\]\(.*?\)', '', content)  # Markdown images
-        content = re.sub(r'\[.*?\]\(.*?\.(jpg|jpeg|png|gif|bmp|svg|webp).*?\)', '', content, flags=re.IGNORECASE)  # Image links
+        content = re.sub(r'\[.*?\]\(.*?\.(jpg|jpeg|png|gif|bmp|svg|webp|mp4|avi|mov|pdf).*?\)', '', content, flags=re.IGNORECASE)  # Media links
+        content = re.sub(r'<img[^>]*>', '', content, flags=re.IGNORECASE)  # HTML images
+        content = re.sub(r'<video[^>]*>.*?</video>', '', content, flags=re.IGNORECASE | re.DOTALL)  # HTML videos
+        content = re.sub(r'<audio[^>]*>.*?</audio>', '', content, flags=re.IGNORECASE | re.DOTALL)  # HTML audio
         
-        # Remover múltiplas quebras de linha
-        content = re.sub(r'\n\s*\n\s*\n+', '\n\n', content)
+        # Remover elementos visuais e decorativos
+        content = re.sub(r'---+', '', content)  # Separadores visuais
+        content = re.sub(r'===+', '', content)  # Separadores visuais
+        content = re.sub(r'\*\*\*+', '', content)  # Separadores visuais
+        content = re.sub(r'_{3,}', '', content)  # Underlines decorativos
         
-        # Remover espaços em excesso
-        content = re.sub(r'[ \t]+', ' ', content)
+        # Remover formatação de código complexa (manter apenas texto)
+        content = re.sub(r'```[^`]*```', '', content, flags=re.DOTALL)  # Code blocks
+        content = re.sub(r'`[^`]+`', '', content)  # Inline code
+        
+        # Remover tabelas complexas (manter apenas conteúdo textual)
+        content = re.sub(r'\|[^\n]*\|', '', content)  # Table rows
+        content = re.sub(r'^\s*[-|:]+\s*$', '', content, flags=re.MULTILINE)  # Table separators
+        
+        # Limpar formatação markdown excessiva
+        content = re.sub(r'\*\*(.*?)\*\*', r'\1', content)  # Bold
+        content = re.sub(r'\*(.*?)\*', r'\1', content)  # Italic
+        content = re.sub(r'__(.*?)__', r'\1', content)  # Bold
+        content = re.sub(r'_(.*?)_', r'\1', content)  # Italic
+        
+        # Remover links mas manter texto
+        content = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', content)  # [text](url) -> text
+        
+        # Limpar quebras de linha e espaçamento
+        content = re.sub(r'\n\s*\n\s*\n+', '\n\n', content)  # Múltiplas quebras
+        content = re.sub(r'[ \t]+', ' ', content)  # Espaços em excesso
+        content = re.sub(r'^\s+|\s+$', '', content, flags=re.MULTILINE)  # Espaços nas bordas das linhas
         
         # Remover linhas vazias no início e fim
         content = content.strip()
@@ -298,7 +400,10 @@ class ManualFormatter:
     
     def _format_pdf(self, structure: Dict, style: str, options: Dict, formatted_manual: Dict) -> Dict:
         """Formata manual em PDF usando WeasyPrint"""
-        if not WEASYPRINT_AVAILABLE:
+        # Verificar WeasyPrint diretamente
+        try:
+            from weasyprint import HTML, CSS
+        except ImportError:
             raise RuntimeError("WeasyPrint não está disponível para geração de PDF")
         
         # Gerar HTML primeiro

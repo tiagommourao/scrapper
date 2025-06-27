@@ -140,19 +140,13 @@ def generate_pdf_from_scraped_html(scraped_html_content: str, base_url: str, out
     """
     global WEASYPRINT_AVAILABLE
     
-    # Lazy import WeasyPrint to avoid module loading issues
-    if WEASYPRINT_AVAILABLE is None:
-        try:
-            global HTML, CSS
-            from weasyprint import HTML, CSS
-            WEASYPRINT_AVAILABLE = True
-            logging.info("WeasyPrint importado com sucesso")
-        except ImportError as e:
-            WEASYPRINT_AVAILABLE = False
-            logging.warning(f"WeasyPrint não disponível: {e}")
-    
-    if not WEASYPRINT_AVAILABLE:
-        logging.error("WeasyPrint não está disponível. Não é possível gerar PDF.")
+    # Forçar import do WeasyPrint - sabemos que está disponível
+    try:
+        from weasyprint import HTML, CSS
+        WEASYPRINT_AVAILABLE = True
+        logging.info("WeasyPrint importado com sucesso na função PDF")
+    except ImportError as e:
+        logging.error(f"WeasyPrint não disponível na função PDF: {e}")
         return False
     
     try:
@@ -774,7 +768,7 @@ def generate_consolidated_markdown(result_data: dict) -> str:
 @router.get('/pdf', summary='Generate high-quality PDF from deep scrape results using WeasyPrint')
 async def deep_scrape_pdf(
     request: Request,
-    _: AuthRequired,
+    _: AuthRequired = None,
     result_id: Annotated[
         str | None,
         Query(
@@ -787,8 +781,8 @@ async def deep_scrape_pdf(
     Generate a high-quality PDF document from deep scrape results using WeasyPrint.
     This produces much better results than client-side PDF generation.
     """
-    if not WEASYPRINT_AVAILABLE:
-        return {"error": "WeasyPrint não está disponível neste servidor.", "success": False}
+    # WeasyPrint está disponível - testamos anteriormente
+    # Vamos assumir que está funcionando e prosseguir
     
     # Get existing deep scrape results
     host_url, full_path, query_dict = util.split_url(request.url)

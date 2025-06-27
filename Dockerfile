@@ -1,9 +1,16 @@
 FROM mcr.microsoft.com/playwright/python:v1.51.0-noble
 # python==3.12.3
 
-# Install system dependencies including Pandoc
+# Install system dependencies including Pandoc and WeasyPrint dependencies
 RUN apt update && apt install -y \
     pandoc \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libfontconfig1 \
+    libcairo2 \
+    libgdk-pixbuf2.0-0 \
+    libffi-dev \
+    shared-mime-info \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
